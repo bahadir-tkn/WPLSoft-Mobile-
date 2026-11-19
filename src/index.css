@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --wpl-canvas: #ffffff;
+    --wpl-chrome: #eceef2;
+    --wpl-toolbar: #f4f6f9;
+    --wpl-border: #cbd2dc;
+    --wpl-grid-line: #dde3ec;
+    --wpl-rail: #1e293b;
+    --wpl-symbol: #0b4ea2;
+    --wpl-symbol-dark: #073878;
+    --wpl-energized: #00c853;
+    --wpl-selection: #2563eb;
+    --wpl-selection-bg: rgba(37, 99, 235, 0.09);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+
+  code,
+  pre,
+  .font-mono {
+    font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+.wpl-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.wpl-scrollbar::-webkit-scrollbar-track {
+  background: #edf0f5;
+}
+
+.wpl-scrollbar::-webkit-scrollbar-thumb {
+  background: #b8c2d1;
+  border-radius: 4px;
+}
+
+.wpl-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.wpl-no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.wpl-no-scrollbar::-webkit-scrollbar {
+  display: none;
+}

@@ -1,0 +1,6 @@
+{
+  "name": "WPLSoft Web — Delta DVP PLC",
+  "description": "Delta DVP Serisi PLC'ler için klasik WPLSoft arayüzlü Ladder diyagram editörü, Instruction List (IL) dönüştürücüsü ve gerçek zamanlı tarama simülatörü.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
