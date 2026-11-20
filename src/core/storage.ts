@@ -10,7 +10,7 @@ import type {
   PlcModelId,
 } from '../types/plc';
 import { validateAddress, validateZrstRange } from './addressing';
-import { createEmptyCell, createEndRung } from './gridFactory';
+import { createEmptyCell, createEndRung, deduplicateRungIds } from './gridFactory';
 import { LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModels';
 
 export const DRAFT_STORAGE_KEY = 'wplsoft_web_dvp_draft_v1';
@@ -472,7 +472,7 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
         projectName,
         model,
         columns: LADDER_TOTAL_COLUMNS,
-        rungs: normalizedRungs,
+        rungs: deduplicateRungIds(normalizedRungs),
         deviceComments,
         updatedAt:
           typeof obj.updatedAt === 'string' ? obj.updatedAt : new Date().toISOString(),

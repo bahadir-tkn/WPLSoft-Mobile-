@@ -11,6 +11,39 @@ import {
 } from './plcModels';
 
 let rungIdCounter = 1;
+const SESSION_RUNG_PREFIX = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+export function generateUniqueRungId(existingIds?: ReadonlySet<string>): string {
+  let candidate = `rung-${SESSION_RUNG_PREFIX}-${rungIdCounter++}`;
+  while (existingIds && existingIds.has(candidate)) {
+    candidate = `rung-${SESSION_RUNG_PREFIX}-${rungIdCounter++}`;
+  }
+  return candidate;
+}
+
+export function deduplicateRungIds(rungs: LadderRung[]): LadderRung[] {
+  const seen = new Set<string>();
+  let changed = false;
+
+  const result = rungs.map((rung) => {
+    const rawId = typeof rung.id === 'string' ? rung.id.trim() : '';
+    const preferredId = rawId || (rung.isEnd ? 'rung-end' : generateUniqueRungId(seen));
+    if (!seen.has(preferredId)) {
+      seen.add(preferredId);
+      if (preferredId === rung.id) {
+        return rung;
+      }
+      changed = true;
+      return { ...rung, id: preferredId };
+    }
+    changed = true;
+    const uniqueId = generateUniqueRungId(seen);
+    seen.add(uniqueId);
+    return { ...rung, id: uniqueId };
+  });
+
+  return changed ? result : rungs;
+}
 
 export function createEmptyCell(): LadderCellData {
   return {
@@ -27,7 +60,7 @@ export function createEmptyRung(
   columns = LADDER_TOTAL_COLUMNS,
   id?: string
 ): LadderRung {
-  const generatedId = id ?? `rung-${rungIdCounter++}`;
+  const generatedId = id ?? generateUniqueRungId();
   return {
     id: generatedId,
     rows: [createEmptyRow(columns)],

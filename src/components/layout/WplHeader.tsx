@@ -62,9 +62,9 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
   onOpenShortcutsModal,
 }) => {
   return (
-    <header className="shrink-0 bg-[#F7F8FA] border-b border-[#CBD2DC] px-2 sm:px-3.5 h-12 flex items-center justify-between gap-1.5 sm:gap-2.5">
+    <header className="shrink-0 bg-[#F7F8FA] border-b border-[#CBD2DC] px-1.5 sm:px-3.5 h-12 flex items-center justify-between gap-1 sm:gap-2.5">
       {/* Zone 1: Brand & PLC Model */}
-      <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+      <div className="flex items-center gap-1 sm:gap-2 min-w-0">
         <div
           className={`w-7 h-7 rounded text-white flex items-center justify-center shrink-0 transition-colors ${
             isOnline ? 'bg-[#00C853]' : 'bg-[#0B4EA2]'
@@ -93,14 +93,14 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           {projectName}
         </span>
 
-        <div className="flex items-center gap-1 ml-0.5 sm:ml-2 shrink-0">
+        <div className="flex items-center gap-1 ml-0.5 sm:ml-2 min-w-0">
           <select
             id="plc-model-select"
             aria-label="PLC Modeli"
             value={model}
             disabled={isOnline}
             onChange={(e) => onModelChange(e.target.value as PlcModelId)}
-            className="h-8 rounded border border-[#B8C2D1] bg-white px-1.5 sm:px-2 text-[11px] sm:text-xs font-mono font-semibold text-[#0B4EA2] disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] cursor-pointer"
+            className="h-8 w-full max-w-[92px] sm:w-auto sm:max-w-none rounded border border-[#B8C2D1] bg-white px-1 sm:px-2 text-[11px] sm:text-xs font-mono font-semibold text-[#0B4EA2] disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] cursor-pointer"
           >
             {PLC_MODEL_LIST.map((spec) => (
               <option key={spec.id} value={spec.id}>
@@ -143,7 +143,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           data-testid="open-project-io-btn"
           aria-label="Dosya, PC WPLSoft IL aktarımı ve yeni proje"
           title="Dosya / IL (.il, .txt, .json, Yeni Proje)"
-          className="h-8 w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] disabled:opacity-35 disabled:pointer-events-none text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-8 w-7 sm:w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] disabled:opacity-35 disabled:pointer-events-none text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <FolderOpen className="w-3.5 h-3.5 text-[#0B4EA2]" aria-hidden="true" />
           <span className="hidden lg:inline">Dosya / IL</span>
@@ -156,7 +156,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           data-testid="open-templates-btn"
           aria-label="Hazır endüstriyel ders şablonlarını aç"
           title="Şablonlar (Start-Stop, Yıldız-Üçgen, Örnek 6.1–8.1)"
-          className="h-8 w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] disabled:opacity-35 disabled:pointer-events-none text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-8 w-7 sm:w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] disabled:opacity-35 disabled:pointer-events-none text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <BookOpen className="w-3.5 h-3.5 text-[#0B4EA2]" aria-hidden="true" />
           <span className="hidden lg:inline">Şablonlar</span>
@@ -168,7 +168,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           data-testid="open-search-btn"
           aria-label="Ladder içinde ara ve kullanılan adresleri görüntüle"
           title="Ara / Kullanılan Adresler (Ctrl+F)"
-          className="h-8 w-8 xl:w-auto xl:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-8 w-7 sm:w-8 xl:w-auto xl:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <Search className="w-3.5 h-3.5 text-[#0B4EA2] shrink-0" aria-hidden="true" />
           <span className="hidden xl:inline">Ara</span>
@@ -180,7 +180,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           data-testid="open-wiring-btn"
           aria-label="BETİ Delta PLC Eğitim Seti kablolama şemasını aç"
           title="Kablolama (BETİ)"
-          className="h-8 w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className="h-8 w-7 sm:w-8 lg:w-auto lg:px-2.5 rounded border border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8] text-xs font-medium flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
         >
           <Cable className="w-3.5 h-3.5 text-[#0B4EA2] shrink-0" aria-hidden="true" />
           <span className="hidden lg:inline xl:hidden">Kablolama</span>
@@ -192,7 +192,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           onClick={onCompileCheck}
           aria-label="Programı derle ve denetle"
           title="Derle ve Denetle"
-          className={`h-8 w-8 sm:w-auto sm:px-2.5 rounded border text-xs font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+          className={`h-8 w-7 sm:w-auto sm:px-2.5 rounded border text-xs font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             errorCount > 0
               ? 'border-[#DC2626] bg-[#FEF2F2] text-[#B91C1C]'
               : warningCount > 0
@@ -237,7 +237,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           ) : (
             <Play className="w-3.5 h-3.5 shrink-0 fill-current" aria-hidden="true" />
           )}
-          <span className="sm:hidden">{isOnline ? 'Düzenle' : 'Sim'}</span>
+          <span className="sm:hidden">{isOnline ? 'Çık' : 'Sim'}</span>
           <span className="hidden sm:inline">
             {isOnline ? (isRunning ? 'Simülasyon · RUN' : 'Simülasyon · STOP') : 'Simülasyon'}
           </span>
@@ -248,7 +248,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
           onClick={onToggleIlPanel}
           aria-pressed={showIlPanel}
           aria-label="Instruction List (IL) panelini aç veya kapat"
-          className={`h-8 w-8 sm:w-auto sm:px-2.5 rounded border text-xs font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+          className={`h-8 w-7 sm:w-auto sm:px-2.5 rounded border text-xs font-semibold flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
             showIlPanel
               ? 'border-[#0B4EA2] bg-[#EEF4FC] text-[#0B4EA2]'
               : 'border-[#C5CDD9] bg-white text-[#1E293B] hover:bg-[#EDF2F8]'

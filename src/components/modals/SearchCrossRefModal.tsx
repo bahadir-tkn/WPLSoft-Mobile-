@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Edit3, ListTree, Search, Tag, X } from 'lucide-react';
 import type { DevicePrefix, LadderProgram } from '../../types/plc';
 import {
@@ -41,6 +41,23 @@ export const SearchCrossRefModal: React.FC<SearchCrossRefModalProps> = ({
   const [prefixFilter, setPrefixFilter] = useState<PrefixFilter>('ALL');
   const [editingAddr, setEditingAddr] = useState<string | null>(null);
   const [commentDraft, setCommentDraft] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        if (editingAddr) {
+          setEditingAddr(null);
+          setCommentDraft('');
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, editingAddr, onClose]);
 
   const searchResults = useMemo(
     () => searchLadderProgram(program, query),

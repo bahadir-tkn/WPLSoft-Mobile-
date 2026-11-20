@@ -1669,9 +1669,12 @@ test('Ladder editing operations: place, delete, toggleBranchDown, insertRung, de
   assert.equal(prog.rungs[0].rows[0][0].branchDown, true);
 
   // Insert rung & delete rung
-  prog = insertRungOnProgram(prog, 0);
+  const ins = insertRungOnProgram(prog, 0);
+  assert.equal(ins.newRungIndex, 1);
+  prog = ins.program;
   assert.equal(prog.rungs.filter((r) => !r.isEnd).length, 2);
-  prog = deleteRungOnProgram(prog, 1);
+  const del = deleteRungOnProgram(prog, 1);
+  prog = del.program;
   assert.equal(prog.rungs.filter((r) => !r.isEnd).length, 1);
 
   // Delete cell clears element
@@ -1877,5 +1880,42 @@ test('nextOctalAddress respects model maxOctalIo when modelId is provided', () =
   assert.equal(nextOctalAddress('X17', 'DVP-SX2'), 'X20'); // SX2 expanded octal range
   assert.equal(nextOctalAddress('X377', 'DVP-SX2'), null); // SX2 max octal cap returns null
 });
+
+test('Rung ID uniqueness: generated rung IDs never collide with legacy rung-1/rung-2 and parseProgramJson heals duplicate keys', () => {
+  const base = createBlankProgram('DVP-SX2', 'Key_Uniqueness_Test', 2);
+  // Simulate legacy localStorage draft containing duplicate rung-1 & rung-2 IDs
+  const corrupted = {
+    ...base,
+    rungs: [
+      { ...base.rungs[0], id: 'rung-1' },
+      { ...base.rungs[1], id: 'rung-1' },
+      { ...base.rungs[0], id: 'rung-2' },
+      { ...base.rungs[1], id: 'rung-2' },
+      base.rungs[2],
+    ],
+  };
+
+  const parsed = parseProgramJson(JSON.stringify(corrupted));
+  assert.equal(parsed.success, true, parsed.error);
+  const loaded = parsed.program!;
+  const loadedIds = loaded.rungs.map((r) => r.id);
+  assert.equal(
+    new Set(loadedIds).size,
+    loadedIds.length,
+    `Expected all loaded rung IDs to be unique, got: ${loadedIds.join(', ')}`
+  );
+
+  // Inserting additional rungs must also produce strictly unique IDs never colliding with rung-1/rung-2
+  const inserted1 = insertRungOnProgram(loaded, 0);
+  const inserted2 = insertRungOnProgram(inserted1.program, 1);
+  const finalIds = inserted2.program.rungs.map((r) => r.id);
+  assert.equal(
+    new Set(finalIds).size,
+    finalIds.length,
+    `Expected all rung IDs after insert to be unique, got: ${finalIds.join(', ')}`
+  );
+  assert.ok(!finalIds.slice(-3).includes('rung-1'));
+});
+
 
 

@@ -100,7 +100,6 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   useEffect(() => {
     if (isOpen) {
       setActiveTab('export_il');
-      setProjectNameInput(program.projectName);
       setIlErrors([]);
       setIlWarnings([]);
       setJsonError(null);
@@ -109,7 +108,25 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       setSavedProjects(listSavedProjects());
       setRecoveryDraft(loadRecoveryDraftFromStorage());
     }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setProjectNameInput(program.projectName);
+    }
   }, [isOpen, program.projectName]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
