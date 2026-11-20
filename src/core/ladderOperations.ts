@@ -13,10 +13,18 @@ import { parseQuickCommand, type QuickCommandSuccess } from './quickCommand';
 
 export const MAX_HISTORY_DEPTH = 40;
 
+export type HistoryTransitionKind = 'commit' | 'undo' | 'redo';
+
+export interface HistoryTransition {
+  kind: HistoryTransitionKind;
+  seq: number;
+}
+
 export interface EditorHistoryState {
   past: LadderProgram[];
   present: LadderProgram;
   future: LadderProgram[];
+  lastTransition: HistoryTransition | null;
 }
 
 export function createInitialHistory(initial: LadderProgram): EditorHistoryState {
@@ -24,43 +32,71 @@ export function createInitialHistory(initial: LadderProgram): EditorHistoryState
     past: [],
     present: initial,
     future: [],
+    lastTransition: null,
   };
 }
 
 export function commitHistory(
   history: EditorHistoryState,
-  updater: (current: LadderProgram) => LadderProgram
+  updater: (current: LadderProgram) => LadderProgram,
+  updatedAt?: string
 ): EditorHistoryState {
   const next = updater(history.present);
   if (next === history.present) return history;
   const stamped: LadderProgram = {
     ...next,
-    updatedAt: new Date().toISOString(),
+    updatedAt: updatedAt ?? next.updatedAt ?? new Date().toISOString(),
   };
+  const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
   return {
     past: [...history.past.slice(-(MAX_HISTORY_DEPTH - 1)), history.present],
     present: stamped,
     future: [],
+    lastTransition: { kind: 'commit', seq: nextSeq },
+  };
+}
+
+export function commitHistoryFromSnapshot(
+  history: EditorHistoryState,
+  baseProgram: LadderProgram,
+  nextProgram: LadderProgram,
+  updatedAt?: string
+): EditorHistoryState {
+  if (nextProgram === baseProgram) return history;
+  const stamped: LadderProgram = {
+    ...nextProgram,
+    updatedAt: updatedAt ?? nextProgram.updatedAt ?? new Date().toISOString(),
+  };
+  const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
+  return {
+    past: [...history.past.slice(-(MAX_HISTORY_DEPTH - 1)), baseProgram],
+    present: stamped,
+    future: [],
+    lastTransition: { kind: 'commit', seq: nextSeq },
   };
 }
 
 export function undoHistory(history: EditorHistoryState): EditorHistoryState {
   if (history.past.length === 0) return history;
   const previous = history.past[history.past.length - 1];
+  const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
   return {
     past: history.past.slice(0, -1),
     present: previous,
     future: [history.present, ...history.future.slice(0, MAX_HISTORY_DEPTH - 1)],
+    lastTransition: { kind: 'undo', seq: nextSeq },
   };
 }
 
 export function redoHistory(history: EditorHistoryState): EditorHistoryState {
   if (history.future.length === 0) return history;
   const next = history.future[0];
+  const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
   return {
     past: [...history.past.slice(-(MAX_HISTORY_DEPTH - 1)), history.present],
     present: next,
     future: history.future.slice(1),
+    lastTransition: { kind: 'redo', seq: nextSeq },
   };
 }
 
@@ -317,11 +353,43 @@ export interface QuickCommandApplyError {
   error: string;
 }
 
+function hasContinuousPathToColumn(
+  rung: LadderRung,
+  rowIndex: number,
+  targetCol: number
+): boolean {
+  if (targetCol === 0) return true;
+  const row = rung.rows[rowIndex];
+  if (!row) return false;
+
+  // Check if the left edge of targetCol is fed either by a continuous horizontal chain
+  // from col 0 on this row, or by a vertical branchDown descending into (rowIndex, targetCol)
+  let col = targetCol - 1;
+  while (col >= 0) {
+    // Vertical branch feeding into left boundary of (col + 1) from rowIndex - 1
+    if (rowIndex > 0 && rung.rows[rowIndex - 1]?.[col]?.branchDown) {
+      return hasContinuousPathToColumn(rung, rowIndex - 1, col + 1);
+    }
+    const cell = row[col];
+    if (!cell) return false;
+    if (
+      cell.element.kind !== 'CONTACT' &&
+      cell.element.kind !== 'COMPARE' &&
+      cell.element.kind !== 'HLINE'
+    ) {
+      return false;
+    }
+    col -= 1;
+  }
+  return true;
+}
+
 /**
  * Pure Quick-Command executor (LD X0, OR Y0, ANI X1, OUT Y0, TMR T0 K50...).
- * Fixes the OR-after-auto-advance bug: when the user types "LD X0" (cursor advances to col 1)
- * and then immediately types "OR Y0", it automatically places Y0 in parallel beneath col 0 (X0)
- * and sets the vertical branch connector cleanly.
+ * Enforces strict parallel OR/ORI/ORP/ORF/OR-compare rules:
+ * - Never silently converts OR into LD on an empty rung or invalid column.
+ * - Preserves LD X0 -> OR Y0 -> ANI X1 -> OUT Y0 and multi-column parallel branches.
+ * - Never overwrites occupied cells when creating parallel branches.
  */
 export function applyQuickCommandOnProgram(
   program: LadderProgram,
@@ -348,6 +416,149 @@ export function applyQuickCommandOnProgram(
     targetColIdx = parsed.targetScope === 'output' ? LADDER_COIL_COLUMN : 0;
   }
 
+  const baseRung = program.rungs[targetRungIdx];
+  if (!baseRung || baseRung.isEnd) {
+    return { ok: false, error: 'Düzenlenebilir Ladder ağı bulunamadı.' };
+  }
+
+  // Strict validation BEFORE mutating rungs when placing a parallel OR command
+  if (parsed.isParallelOr && parsed.targetScope === 'logic') {
+    const opcodeLabel = parsed.summary.split(' ')[0] ?? 'OR';
+    const hasAnyLogicInRung = baseRung.rows.some((r) =>
+      r.slice(0, LADDER_COIL_COLUMN).some((c) => isLogicElement(c.element))
+    );
+    if (!hasAnyLogicInRung) {
+      return {
+        ok: false,
+        error: `${opcodeLabel} komutu boş bir ağda kullanılamaz. Önce bir LD / LDI / LDP / LDF kontağı ekleyin (Örn: LD X0).`,
+      };
+    }
+
+    const row = baseRung.rows[targetRowIdx];
+    if (!row) {
+      return {
+        ok: false,
+        error: `${opcodeLabel} komutu için geçerli bir üst satır bulunamadı.`,
+      };
+    }
+
+    let anchorCol = targetColIdx;
+    const curCell = row[anchorCol];
+    // If cursor auto-advanced to an empty cell immediately right of a logic contact, anchor under anchorCol - 1
+    if (
+      curCell &&
+      curCell.element.kind === 'EMPTY' &&
+      anchorCol > 0 &&
+      isLogicElement(row[anchorCol - 1].element)
+    ) {
+      anchorCol -= 1;
+    }
+
+    const anchorCell = row[anchorCol];
+    if (!anchorCell || !isLogicElement(anchorCell.element)) {
+      return {
+        ok: false,
+        error: `${opcodeLabel} komutu için geçerli bir üst kontak bulunamadı (Sütun ${targetColIdx}). İmleci paralel bağlanacak kontağın üzerine veya hemen sağına getirin.`,
+      };
+    }
+
+    // Ensure there is an unbroken LD/AND path from the left rail to anchorCol
+    if (!hasContinuousPathToColumn(baseRung, targetRowIdx, anchorCol)) {
+      return {
+        ok: false,
+        error: `${opcodeLabel} komutu Sütun ${anchorCol} konumunda kullanılamaz; sol güç hattından (LD) kesintisiz bir kontak zinciri bulunmalıdır.`,
+      };
+    }
+
+    const cloned = cloneRung(baseRung);
+
+    // Find the first empty row below targetRowIdx at anchorCol (never overwriting occupied cells)
+    let destRow = targetRowIdx + 1;
+    while (
+      destRow < cloned.rows.length &&
+      cloned.rows[destRow][anchorCol].element.kind !== 'EMPTY'
+    ) {
+      destRow += 1;
+    }
+
+    // For anchorCol > 0, guard against accidentally short-circuiting an unrelated series branch on anchorCol - 1
+    if (anchorCol > 0) {
+      for (let r = targetRowIdx + 1; r <= destRow; r += 1) {
+        const leftNeighbor = cloned.rows[r]?.[anchorCol - 1];
+        const upperLeftBranch = cloned.rows[r - 1]?.[anchorCol - 1]?.branchDown ?? false;
+        if (
+          leftNeighbor &&
+          leftNeighbor.element.kind !== 'EMPTY' &&
+          !upperLeftBranch
+        ) {
+          return {
+            ok: false,
+            error: `${opcodeLabel} komutu Sütun ${anchorCol} konumunda mevcut alt dal ile çakışıyor. Paralel dalı ayrı bir kolda veya uygun sütunda oluşturun.`,
+          };
+        }
+      }
+    }
+
+    while (cloned.rows.length <= destRow) {
+      cloned.rows.push(createEmptyRow(LADDER_TOTAL_COLUMNS));
+    }
+
+    // Connect vertical rails cleanly down to destRow
+    for (let r = targetRowIdx; r < destRow; r += 1) {
+      cloned.rows[r][anchorCol] = {
+        ...cloned.rows[r][anchorCol],
+        branchDown: true,
+      };
+      if (anchorCol > 0) {
+        cloned.rows[r][anchorCol - 1] = {
+          ...cloned.rows[r][anchorCol - 1],
+          branchDown: true,
+        };
+      }
+    }
+
+    cloned.rows[destRow][anchorCol] = {
+      ...cloned.rows[destRow][anchorCol],
+      element: parsed.element,
+    };
+
+    const updatedRungs = program.rungs.map((r, idx) =>
+      idx === targetRungIdx ? cloned : r
+    );
+
+    const nextCursor: CursorPosition = {
+      rungIndex: targetRungIdx,
+      rowIndex: targetRowIdx,
+      colIndex: Math.min(anchorCol + 1, LADDER_COIL_COLUMN - 1),
+    };
+
+    return {
+      ok: true,
+      program: {
+        ...program,
+        rungs: updatedRungs,
+      },
+      nextCursor,
+      parsed,
+    };
+  }
+
+  // Prevent accidentally overwriting an already occupied cell at the rightmost logic column
+  const existingRow = baseRung.rows[targetRowIdx];
+  if (
+    parsed.targetScope === 'logic' &&
+    targetColIdx === LADDER_COIL_COLUMN - 1 &&
+    existingRow &&
+    existingRow[targetColIdx] &&
+    existingRow[targetColIdx].element.kind !== 'EMPTY' &&
+    existingRow[targetColIdx].element.kind !== 'HLINE'
+  ) {
+    return {
+      ok: false,
+      error: `Sütun ${targetColIdx} zaten dolu. Mevcut elemanı değiştirmek için hücreye dokunarak düzenleyin veya yeni ağ ekleyin.`,
+    };
+  }
+
   let nextCursor: CursorPosition = {
     rungIndex: targetRungIdx,
     rowIndex: targetRowIdx,
@@ -363,62 +574,7 @@ export function applyQuickCommandOnProgram(
       cloned.rows.push(createEmptyRow(LADDER_TOTAL_COLUMNS));
     }
 
-    if (parsed.isParallelOr && parsed.targetScope === 'logic') {
-      let anchorCol = targetColIdx;
-      const curCell = cloned.rows[targetRowIdx][anchorCol];
-      // If cursor auto-advanced to an empty cell right after a logic element, branch beneath anchorCol - 1
-      if (
-        curCell.element.kind === 'EMPTY' &&
-        anchorCol > 0 &&
-        isLogicElement(cloned.rows[targetRowIdx][anchorCol - 1].element)
-      ) {
-        anchorCol -= 1;
-      }
-
-      const anchorCell = cloned.rows[targetRowIdx][anchorCol];
-      if (anchorCell.element.kind !== 'EMPTY') {
-        // Find the first empty row below targetRowIdx at anchorCol
-        let destRow = targetRowIdx + 1;
-        while (
-          destRow < cloned.rows.length &&
-          cloned.rows[destRow][anchorCol].element.kind !== 'EMPTY'
-        ) {
-          destRow += 1;
-        }
-        while (cloned.rows.length <= destRow) {
-          cloned.rows.push(createEmptyRow(LADDER_TOTAL_COLUMNS));
-        }
-
-        // Connect right side vertically down to destRow
-        for (let r = targetRowIdx; r < destRow; r += 1) {
-          cloned.rows[r][anchorCol] = {
-            ...cloned.rows[r][anchorCol],
-            branchDown: true,
-          };
-          if (anchorCol > 0) {
-            cloned.rows[r][anchorCol - 1] = {
-              ...cloned.rows[r][anchorCol - 1],
-              branchDown: true,
-            };
-          }
-        }
-
-        cloned.rows[destRow][anchorCol] = {
-          ...cloned.rows[destRow][anchorCol],
-          element: parsed.element,
-        };
-
-        // After a parallel OR, advance cursor to the series continuation column on the original top row
-        nextCursor = {
-          rungIndex: targetRungIdx,
-          rowIndex: targetRowIdx,
-          colIndex: Math.min(anchorCol + 1, LADDER_COIL_COLUMN - 1),
-        };
-        return cloned;
-      }
-    }
-
-    // Standard placement
+    // Standard placement (LD / LDI / LDP / LDF / AND / ANI / ANDP / ANDF / Compare / Outputs)
     cloned.rows[targetRowIdx][targetColIdx] = {
       ...cloned.rows[targetRowIdx][targetColIdx],
       element: parsed.element,

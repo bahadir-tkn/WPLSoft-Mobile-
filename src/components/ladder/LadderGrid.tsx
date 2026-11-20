@@ -436,7 +436,10 @@ export const LadderGrid: React.FC<LadderGridProps> = ({
       </div>
 
       {/* Scrollable Authentic PC WPLSoft Ladder Worksheet Canvas (No C0-C7 headers, No right action column) */}
-      <div className="flex-1 overflow-auto touch-pan-x touch-pan-y wpl-scrollbar p-2 sm:p-3">
+      <div
+        data-testid="ladder-scroll-container"
+        className="flex-1 overflow-auto touch-pan-x touch-pan-y wpl-scrollbar p-2 sm:p-3"
+      >
         <div
           className={`${gridMinWidthClass} max-w-[1620px] mx-auto bg-white border border-[#BFC7D5] shadow-[0_1px_2px_rgba(15,23,42,0.06)]`}
           data-testid="ladder-grid"

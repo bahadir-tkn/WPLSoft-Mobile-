@@ -11,6 +11,7 @@ import {
   createBlankProgram,
   createEmptyCell,
   createEmptyRow,
+  deduplicateRungIds,
   deleteRungAt,
   insertRungAfter,
 } from '../core/gridFactory';
@@ -19,6 +20,7 @@ import { isLogicElement, isOutputElement } from '../core/ast';
 import {
   applyQuickCommandOnProgram,
   commitHistory,
+  commitHistoryFromSnapshot,
   createInitialHistory,
   redoHistory,
   setDeviceCommentOnProgram,
@@ -202,9 +204,35 @@ export function useLadderEditor(
     [program.rungs]
   );
 
-  const commitProgram = useCallback((nextProgram: LadderProgram) => {
-    setHistory((prev) => commitHistory(prev, () => nextProgram));
-  }, []);
+  const lastNotifiedTransitionSeqRef = useRef<number>(0);
+
+  // Notify strictly after real Undo / Redo state transitions (zero side effects inside state updaters)
+  useEffect(() => {
+    const tr = history.lastTransition;
+    if (!tr || tr.seq === lastNotifiedTransitionSeqRef.current) return;
+    lastNotifiedTransitionSeqRef.current = tr.seq;
+    if (tr.kind === 'undo') {
+      onNotify('Son işlem geri alındı.');
+    } else if (tr.kind === 'redo') {
+      onNotify('İşlem yeniden uygulandı.');
+    }
+  }, [history.lastTransition, onNotify]);
+
+  const commitProgramUpdate = useCallback(
+    (updater: (current: LadderProgram) => LadderProgram) => {
+      const timestamp = new Date().toISOString();
+      setHistory((prev) => commitHistory(prev, updater, timestamp));
+    },
+    []
+  );
+
+  const commitProgram = useCallback(
+    (nextProgram: LadderProgram) => {
+      const timestamp = new Date().toISOString();
+      setHistory((prev) => commitHistory(prev, () => nextProgram, timestamp));
+    },
+    []
+  );
 
   const replacePresentWithoutHistory = useCallback((nextProgram: LadderProgram) => {
     setHistory((prev) => ({
@@ -215,44 +243,26 @@ export function useLadderEditor(
 
   const undo = useCallback(() => {
     if (isLocked) return;
-    let didUndo = false;
-    setHistory((prev) => {
-      if (prev.past.length === 0) return prev;
-      didUndo = true;
-      return undoHistory(prev);
-    });
-    if (didUndo) {
-      onNotify('Son işlem geri alındı.');
-    }
-  }, [isLocked, onNotify]);
+    setHistory((prev) => undoHistory(prev));
+  }, [isLocked]);
 
   const redo = useCallback(() => {
     if (isLocked) return;
-    let didRedo = false;
-    setHistory((prev) => {
-      if (prev.future.length === 0) return prev;
-      didRedo = true;
-      return redoHistory(prev);
-    });
-    if (didRedo) {
-      onNotify('İşlem yeniden uygulandı.');
-    }
-  }, [isLocked, onNotify]);
+    setHistory((prev) => redoHistory(prev));
+  }, [isLocked]);
 
   const setModel = useCallback(
     (nextModel: PlcModelId) => {
       if (isLocked) return;
       const nextSpec = PLC_MODELS[nextModel];
-      commitProgram({
-        ...program,
-        model: nextModel,
-        updatedAt: new Date().toISOString(),
-      });
+      commitProgramUpdate((current) =>
+        current.model === nextModel ? current : { ...current, model: nextModel }
+      );
       onNotify(
         `PLC modeli ${nextSpec.label} olarak güncellendi (${nextSpec.onboardInputCount} DI / ${nextSpec.onboardOutputCount} DO).`
       );
     },
-    [commitProgram, isLocked, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify]
   );
 
   const applyElementToProgram = useCallback(
@@ -315,6 +325,7 @@ export function useLadderEditor(
     (updatedElement: CellElement, comment: string) => {
       if (!editModal) return;
       const base = editModal.previousProgram ?? program;
+      const timestamp = new Date().toISOString();
       const nextProgram = applyElementToProgram(
         base,
         editModal.position,
@@ -322,11 +333,9 @@ export function useLadderEditor(
         comment
       );
 
-      setHistory((prev) => ({
-        past: [...prev.past.slice(-39), base],
-        present: nextProgram,
-        future: [],
-      }));
+      setHistory((prev) =>
+        commitHistoryFromSnapshot(prev, base, nextProgram, timestamp)
+      );
       setEditModal(null);
 
       if (
@@ -351,32 +360,39 @@ export function useLadderEditor(
 
   const clearCellAt = useCallback(
     (pos: CursorPosition) => {
-      const targetRung = program.rungs[pos.rungIndex];
-      if (!targetRung || targetRung.isEnd) return;
+      if (isLocked) return;
+      const previewRung = program.rungs[pos.rungIndex];
+      if (!previewRung || previewRung.isEnd) return;
+      const previewCell = previewRung.rows[pos.rowIndex]?.[pos.colIndex];
+      if (!previewCell) return;
 
-      const rungs = cloneRungs(program.rungs);
-      const rung = rungs[pos.rungIndex];
-      if (!rung.rows[pos.rowIndex]?.[pos.colIndex]) return;
+      const previewCloned = cloneRungs([previewRung])[0];
+      previewCloned.rows[pos.rowIndex][pos.colIndex] = createEmptyCell();
+      const prunedPreview = pruneEmptyTrailingSubRows(previewCloned);
+      const nextRowIdx = Math.min(pos.rowIndex, prunedPreview.rows.length - 1);
 
-      rung.rows[pos.rowIndex][pos.colIndex] = createEmptyCell();
-      rungs[pos.rungIndex] = pruneEmptyTrailingSubRows(rung);
+      commitProgramUpdate((current) => {
+        const targetRung = current.rungs[pos.rungIndex];
+        if (!targetRung || targetRung.isEnd) return current;
+        if (!targetRung.rows[pos.rowIndex]?.[pos.colIndex]) return current;
 
-      const safeRowIdx = Math.min(pos.rowIndex, rungs[pos.rungIndex].rows.length - 1);
-      setCursor({ ...pos, rowIndex: safeRowIdx });
-
-      commitProgram({
-        ...program,
-        rungs,
-        updatedAt: new Date().toISOString(),
+        const rungs = cloneRungs(current.rungs);
+        const rung = rungs[pos.rungIndex];
+        rung.rows[pos.rowIndex][pos.colIndex] = createEmptyCell();
+        rungs[pos.rungIndex] = pruneEmptyTrailingSubRows(rung);
+        return { ...current, rungs };
       });
+
+      setCursor({ ...pos, rowIndex: nextRowIdx });
       onNotify('Hücre temizlendi.');
     },
-    [commitProgram, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify, program.rungs]
   );
 
   const handleDeleteFromModal = useCallback(() => {
     if (!editModal) return;
     const base = editModal.previousProgram ?? program;
+    const timestamp = new Date().toISOString();
     const rungs = cloneRungs(base.rungs);
     const rung = rungs[editModal.position.rungIndex];
     if (
@@ -388,74 +404,79 @@ export function useLadderEditor(
         createEmptyCell();
       rungs[editModal.position.rungIndex] = pruneEmptyTrailingSubRows(rung);
     }
-    setHistory((prev) => ({
-      past: [...prev.past.slice(-39), base],
-      present: {
-        ...base,
-        rungs,
-        updatedAt: new Date().toISOString(),
-      },
-      future: [],
-    }));
+    const nextProgram: LadderProgram = {
+      ...base,
+      rungs,
+      updatedAt: timestamp,
+    };
+    setHistory((prev) =>
+      commitHistoryFromSnapshot(prev, base, nextProgram, timestamp)
+    );
     setEditModal(null);
     onNotify('Eleman silindi.');
   }, [editModal, onNotify, program]);
 
   const toggleHLineAt = useCallback(
     (pos: CursorPosition) => {
+      if (isLocked) return;
       if (pos.colIndex >= LADDER_COIL_COLUMN) {
         onNotify('Yatay hat (F9) yalnızca lojik sütunlarına (0–7) eklenebilir.');
         return;
       }
-      const rungs = cloneRungs(program.rungs);
-      const rung = rungs[pos.rungIndex];
-      if (!rung || rung.isEnd) return;
-      const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
-      if (!cell) return;
+      const targetRung = program.rungs[pos.rungIndex];
+      const currentCell = targetRung?.rows[pos.rowIndex]?.[pos.colIndex];
+      if (!targetRung || targetRung.isEnd || !currentCell) return;
 
-      const nextKind = cell.element.kind === 'HLINE' ? 'EMPTY' : 'HLINE';
-      cell.element = { kind: nextKind };
-
-      commitProgram({
-        ...program,
-        rungs,
-        updatedAt: new Date().toISOString(),
+      const willAddHLine = currentCell.element.kind !== 'HLINE';
+      commitProgramUpdate((current) => {
+        const rungs = cloneRungs(current.rungs);
+        const rung = rungs[pos.rungIndex];
+        if (!rung || rung.isEnd) return current;
+        const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
+        if (!cell) return current;
+        const nextKind = cell.element.kind === 'HLINE' ? 'EMPTY' : 'HLINE';
+        cell.element = { kind: nextKind };
+        return { ...current, rungs };
       });
 
-      if (nextKind === 'HLINE' && pos.colIndex < LADDER_COIL_COLUMN - 1) {
+      if (willAddHLine && pos.colIndex < LADDER_COIL_COLUMN - 1) {
         setCursor({ ...pos, colIndex: pos.colIndex + 1 });
       }
     },
-    [commitProgram, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify, program.rungs]
   );
 
   const toggleBranchDownAt = useCallback(
     (pos: CursorPosition) => {
+      if (isLocked) return;
       if (pos.colIndex >= LADDER_COIL_COLUMN) {
         onNotify('Paralel kol (F10) lojik sütunlarının (0–7) sağ kenarına eklenir.');
         return;
       }
-      const rungs = cloneRungs(program.rungs);
-      const rung = rungs[pos.rungIndex];
-      if (!rung || rung.isEnd) return;
-      const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
-      if (!cell) return;
+      const targetRung = program.rungs[pos.rungIndex];
+      const currentCell = targetRung?.rows[pos.rowIndex]?.[pos.colIndex];
+      if (!targetRung || targetRung.isEnd || !currentCell) return;
 
-      const nextBranch = !cell.branchDown;
-      cell.branchDown = nextBranch;
+      const willAddBranch = !currentCell.branchDown;
+      commitProgramUpdate((current) => {
+        const rungs = cloneRungs(current.rungs);
+        const rung = rungs[pos.rungIndex];
+        if (!rung || rung.isEnd) return current;
+        const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
+        if (!cell) return current;
 
-      if (nextBranch && pos.rowIndex === rung.rows.length - 1) {
-        rung.rows.push(createEmptyRow(program.columns));
-      }
+        const nextBranch = !cell.branchDown;
+        cell.branchDown = nextBranch;
 
-      rungs[pos.rungIndex] = pruneEmptyTrailingSubRows(rung);
-      commitProgram({
-        ...program,
-        rungs,
-        updatedAt: new Date().toISOString(),
+        if (nextBranch && pos.rowIndex === rung.rows.length - 1) {
+          rung.rows.push(createEmptyRow(current.columns));
+        }
+
+        rungs[pos.rungIndex] = pruneEmptyTrailingSubRows(rung);
+        return { ...current, rungs };
       });
 
-      if (nextBranch) {
+      if (willAddBranch) {
         onNotify(
           `Ağ ${String(pos.rungIndex).padStart(3, '0')} Sütun ${pos.colIndex} için paralel kol (OR Branch) eklendi.`
         );
@@ -463,56 +484,66 @@ export function useLadderEditor(
         onNotify('Paralel kol bağlantısı kaldırıldı.');
       }
     },
-    [commitProgram, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify, program.rungs]
   );
 
   const handleInsertRungAfter = useCallback(
     (rungIndex: number) => {
       if (isLocked) return;
-      const result = insertRungAfter(program, rungIndex);
-      commitProgram(result.program);
+      const endIdx = program.rungs.findIndex((r) => r.isEnd);
+      const predictedIndex =
+        endIdx === -1
+          ? Math.min(rungIndex + 1, program.rungs.length)
+          : Math.min(rungIndex + 1, endIdx);
+      commitProgramUpdate((current) => insertRungAfter(current, rungIndex).program);
       setCursor({
-        rungIndex: result.insertedIndex,
+        rungIndex: predictedIndex,
         rowIndex: 0,
         colIndex: 0,
       });
       onNotify('Yeni boş Ladder ağı (Network) eklendi.');
     },
-    [commitProgram, isLocked, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify, program.rungs]
   );
 
   const handleDeleteRung = useCallback(
     (rungIndex: number) => {
       if (isLocked) return;
-      const result = deleteRungAt(program, rungIndex);
-      if (!result.deleted) {
+      const preview = deleteRungAt(program, rungIndex);
+      if (!preview.deleted) {
         onNotify('En az bir düzenlenebilir satır bulunmalıdır.');
         return;
       }
-      commitProgram(result.program);
+      commitProgramUpdate((current) => {
+        const res = deleteRungAt(current, rungIndex);
+        return res.deleted ? res.program : current;
+      });
       setCursor({
-        rungIndex: result.nextRungIndex,
+        rungIndex: preview.nextRungIndex,
         rowIndex: 0,
         colIndex: 0,
       });
       onNotify(`Ağ ${String(rungIndex).padStart(3, '0')} silindi.`);
     },
-    [commitProgram, isLocked, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify, program]
   );
 
   const handleResetGrid = useCallback(() => {
     if (isLocked) return;
-    commitProgram(createBlankProgram(program.model, program.projectName));
+    commitProgramUpdate((current) =>
+      createBlankProgram(current.model, current.projectName)
+    );
     setCursor({ rungIndex: 0, rowIndex: 0, colIndex: 0 });
     setActiveTool('F1');
     setEditModal(null);
     onNotify('Ladder çalışma ızgarası sıfırlandı.');
-  }, [commitProgram, isLocked, onNotify, program.model, program.projectName]);
+  }, [commitProgramUpdate, isLocked, onNotify]);
 
   const loadExternalProgram = useCallback(
     (nextProgram: LadderProgram, message: string) => {
       commitProgram({
         ...nextProgram,
+        rungs: deduplicateRungIds(nextProgram.rungs),
         updatedAt: new Date().toISOString(),
       });
       setCursor({ rungIndex: 0, rowIndex: 0, colIndex: 0 });
@@ -526,30 +557,26 @@ export function useLadderEditor(
     (nextName: string) => {
       const cleaned = nextName.trim();
       if (!cleaned) return;
-      commitProgram({
-        ...program,
-        projectName: cleaned,
-        updatedAt: new Date().toISOString(),
-      });
+      commitProgramUpdate((current) =>
+        current.projectName === cleaned ? current : { ...current, projectName: cleaned }
+      );
     },
-    [commitProgram, program]
+    [commitProgramUpdate]
   );
 
   const setRungComment = useCallback(
     (rungIndex: number, comment: string) => {
       if (isLocked) return;
-      const target = program.rungs[rungIndex];
-      if (!target || target.isEnd) return;
       const cleaned = comment.trim();
-      const rungs = cloneRungs(program.rungs);
-      rungs[rungIndex] = {
-        ...rungs[rungIndex],
-        comment: cleaned || undefined,
-      };
-      commitProgram({
-        ...program,
-        rungs,
-        updatedAt: new Date().toISOString(),
+      commitProgramUpdate((current) => {
+        const target = current.rungs[rungIndex];
+        if (!target || target.isEnd) return current;
+        const rungs = cloneRungs(current.rungs);
+        rungs[rungIndex] = {
+          ...rungs[rungIndex],
+          comment: cleaned || undefined,
+        };
+        return { ...current, rungs };
       });
       onNotify(
         cleaned
@@ -557,14 +584,15 @@ export function useLadderEditor(
           : 'Segment açıklaması temizlendi.'
       );
     },
-    [commitProgram, isLocked, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify]
   );
 
   const setDeviceComment = useCallback(
     (address: string, comment: string) => {
       if (isLocked) return;
-      const next = setDeviceCommentOnProgram(program, address, comment);
-      commitProgram(next);
+      commitProgramUpdate((current) =>
+        setDeviceCommentOnProgram(current, address, comment)
+      );
       const norm = address.trim().toUpperCase();
       onNotify(
         comment.trim()
@@ -572,7 +600,7 @@ export function useLadderEditor(
           : `${norm} aygıt etiketi temizlendi.`
       );
     },
-    [commitProgram, isLocked, onNotify, program]
+    [commitProgramUpdate, isLocked, onNotify]
   );
 
   const applyQuickCommand = useCallback(

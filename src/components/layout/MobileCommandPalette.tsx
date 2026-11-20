@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Clock, Grid2X2, Search, X } from 'lucide-react';
 import type { CellElement, FunctionToolId, PlcModelId } from '../../types/plc';
 import { PLC_MODELS } from '../../core/plcModels';
@@ -338,6 +338,17 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CommandCategoryId>('contacts');
   const [searchQuery, setSearchQuery] = useState('');
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen]);
 
   const modelSpec = PLC_MODELS[model];
 

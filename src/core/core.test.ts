@@ -12,7 +12,11 @@ import {
 } from './scanner';
 import { parseIlToLadder } from './ilParser';
 import { getTemplateById, INDUSTRIAL_TEMPLATES } from './templates';
-import { parseProgramJson, serializeProgramJson } from './storage';
+import {
+  MAX_PROJECT_JSON_BYTES,
+  parseProgramJson,
+  serializeProgramJson,
+} from './storage';
 import { nextOctalAddress, validateAddress, validateZrstRange } from './addressing';
 import { analyzeProgramWiring } from './wiringAnalyzer';
 import { parseQuickCommand } from './quickCommand';
@@ -20,10 +24,12 @@ import {
   applyQuickCommandOnProgram,
   buildAddressCrossReference,
   commitHistory,
+  commitHistoryFromSnapshot,
   createInitialHistory,
   deleteCellOnProgram,
   deleteRungOnProgram,
   insertRungOnProgram,
+  MAX_HISTORY_DEPTH,
   placeElementOnProgram,
   redoHistory,
   searchLadderProgram,
@@ -1915,6 +1921,356 @@ test('Rung ID uniqueness: generated rung IDs never collide with legacy rung-1/ru
     `Expected all rung IDs after insert to be unique, got: ${finalIds.join(', ')}`
   );
   assert.ok(!finalIds.slice(-3).includes('rung-1'));
+});
+
+test('Undo/Redo StrictMode purity: deterministic external timestamp, double-invocation idempotency, single entry per edit, and 40-step cap', () => {
+  const initial = createBlankProgram('DVP-SX2', 'StrictMode_Undo_Test', 1);
+  let hist = createInitialHistory(initial);
+
+  // Simulate React 19 StrictMode invoking every state updater twice with the same `prev`
+  const strictApply = <T,>(state: T, updater: (prev: T) => T): T => {
+    const first = updater(state);
+    const second = updater(state);
+    assert.deepEqual(first, second, 'State updater must be 100% pure under React StrictMode');
+    return second;
+  };
+
+  // 1. Add single contact X0 and undo once
+  const ts1 = '2026-01-01T10:00:01.000Z';
+  hist = strictApply(hist, (prev) =>
+    commitHistory(
+      prev,
+      (curr) =>
+        placeElementOnProgram(
+          curr,
+          { rungIndex: 0, rowIndex: 0, colIndex: 0 },
+          { kind: 'CONTACT', contactType: 'NO', address: 'X0' }
+        ),
+      ts1
+    )
+  );
+  assert.equal(hist.past.length, 1);
+  assert.equal(hist.future.length, 0);
+  assert.equal(hist.present.updatedAt, ts1);
+  assert.equal(hist.lastTransition?.kind, 'commit');
+  assert.equal(hist.lastTransition?.seq, 1);
+
+  hist = strictApply(hist, (prev) => undoHistory(prev));
+  assert.equal(hist.past.length, 0);
+  assert.equal(hist.future.length, 1);
+  assert.equal(hist.present.rungs[0].rows[0][0].element.kind, 'EMPTY');
+  assert.equal(hist.lastTransition?.kind, 'undo');
+  assert.equal(hist.lastTransition?.seq, 2);
+
+  // Undo on empty past is a strict no-op (same reference, no transition advance)
+  const noopUndo = strictApply(hist, (prev) => undoHistory(prev));
+  assert.equal(noopUndo, hist);
+
+  // 2. Redo restores X0 cleanly
+  hist = strictApply(hist, (prev) => redoHistory(prev));
+  assert.equal(hist.past.length, 1);
+  assert.equal(hist.future.length, 0);
+  assert.equal(hist.present.rungs[0].rows[0][0].element.kind, 'CONTACT');
+  assert.equal(hist.lastTransition?.kind, 'redo');
+  assert.equal(hist.lastTransition?.seq, 3);
+
+  // Redo on empty future is a strict no-op
+  const noopRedo = strictApply(hist, (prev) => redoHistory(prev));
+  assert.equal(noopRedo, hist);
+
+  // 3. Multiple sequential contacts + sequential undo + new edit clears future
+  const ts2 = '2026-01-01T10:00:02.000Z';
+  const ts3 = '2026-01-01T10:00:03.000Z';
+  hist = strictApply(hist, (prev) =>
+    commitHistory(
+      prev,
+      (curr) =>
+        placeElementOnProgram(
+          curr,
+          { rungIndex: 0, rowIndex: 0, colIndex: 1 },
+          { kind: 'CONTACT', contactType: 'NC', address: 'X1' }
+        ),
+      ts2
+    )
+  );
+  hist = strictApply(hist, (prev) =>
+    commitHistory(
+      prev,
+      (curr) =>
+        placeElementOnProgram(
+          curr,
+          { rungIndex: 0, rowIndex: 0, colIndex: LADDER_COIL_COLUMN },
+          { kind: 'COIL', coilType: 'OUT', address: 'Y0' }
+        ),
+      ts3
+    )
+  );
+  assert.equal(hist.past.length, 3);
+
+  // Undo twice (removes OUT Y0 and ANI X1)
+  hist = strictApply(hist, (prev) => undoHistory(prev));
+  hist = strictApply(hist, (prev) => undoHistory(prev));
+  assert.equal(hist.past.length, 1);
+  assert.equal(hist.future.length, 2);
+  assert.equal(hist.present.rungs[0].rows[0][1].element.kind, 'EMPTY');
+
+  // New edit via commitHistoryFromSnapshot clears future
+  const baseBeforeModal = hist.present;
+  const afterModal = placeElementOnProgram(
+    baseBeforeModal,
+    { rungIndex: 0, rowIndex: 0, colIndex: 1 },
+    { kind: 'CONTACT', contactType: 'NO', address: 'X2' }
+  );
+  hist = strictApply(hist, (prev) =>
+    commitHistoryFromSnapshot(prev, baseBeforeModal, afterModal, '2026-01-01T10:00:04.000Z')
+  );
+  assert.equal(hist.future.length, 0);
+  assert.equal(hist.past.length, 2);
+  assert.equal(
+    hist.present.rungs[0].rows[0][1].element.kind === 'CONTACT'
+      ? hist.present.rungs[0].rows[0][1].element.address
+      : '',
+    'X2'
+  );
+
+  // 4. Rapid consecutive edits respect MAX_HISTORY_DEPTH (40)
+  for (let i = 0; i < MAX_HISTORY_DEPTH + 12; i += 1) {
+    const label = `Etiket_${i}`;
+    hist = strictApply(hist, (prev) =>
+      commitHistory(
+        prev,
+        (curr) => setDeviceCommentOnProgram(curr, 'X0', label),
+        `2026-01-01T10:01:${String(i).padStart(2, '0')}.000Z`
+      )
+    );
+  }
+  assert.equal(hist.past.length, MAX_HISTORY_DEPTH);
+  assert.equal(hist.future.length, 0);
+});
+
+test('OR / ORI / ORP / ORF / OR-compare rejected on blank rung and invalid columns (never falls back to LD)', () => {
+  const blank = createBlankProgram('DVP-SX2', 'OR_Reject_Test', 1);
+  const startCursor = { rungIndex: 0, rowIndex: 0, colIndex: 0 };
+
+  for (const cmd of ['OR Y0', 'ORI X1', 'ORP X2', 'ORF X3', 'OR= D0 K10', 'OR>= T0 K50']) {
+    const res = applyQuickCommandOnProgram(blank, startCursor, cmd);
+    assert.equal(res.ok, false, `Expected ${cmd} to fail on blank rung`);
+    assert.ok(res.error && res.error.length > 10, `Expected clear Turkish error for ${cmd}`);
+  }
+
+  // Disconnected column (col 3 on a rung that only has LD X0 at col 0 -> gap at col 1..2)
+  const afterLd = applyQuickCommandOnProgram(blank, startCursor, 'LD X0');
+  assert.equal(afterLd.ok, true);
+  const badColRes = applyQuickCommandOnProgram(
+    afterLd.program,
+    { rungIndex: 0, rowIndex: 0, colIndex: 3 },
+    'OR Y0'
+  );
+  assert.equal(badColRes.ok, false, 'OR at disconnected column 3 must be rejected');
+
+  // Cursor placed directly on an empty cell at col 0 of a second empty rung must also reject OR
+  const twoRung = createBlankProgram('DVP-SX2', 'OR_Rung2_Blank', 2);
+  const resRung1 = applyQuickCommandOnProgram(
+    twoRung,
+    { rungIndex: 1, rowIndex: 0, colIndex: 0 },
+    'OR M0'
+  );
+  assert.equal(resRung1.ok, false);
+});
+
+test('Consecutive OR / ORI / ORP / ORF / parallel compare, multi-column ANB, and multiple parallel branches compile cleanly', () => {
+  // Case A: Consecutive OR + ORI + ORP + ORF + OR>= on col 0 -> AND X5 -> OUT Y0
+  let progA = createBlankProgram('DVP-SX2', 'Multi_OR_Stack', 1);
+  let curA = { rungIndex: 0, rowIndex: 0, colIndex: 0 };
+  for (const cmd of ['LD X0', 'OR Y0', 'ORI M0', 'ORP X1', 'ORF X2', 'OR>= D0 K10', 'AND X5', 'OUT Y0']) {
+    const res = applyQuickCommandOnProgram(progA, curA, cmd);
+    assert.equal(res.ok, true, `Failed on ${cmd}: ${res.error}`);
+    progA = res.program;
+    curA = res.nextCursor;
+  }
+  const compA = compileLadderToIl(progA);
+  assert.equal(compA.hasErrors, false, JSON.stringify(compA.diagnostics));
+  assert.equal(
+    compA.rawIlText,
+    ['LD X0', 'OR Y0', 'ORI M0', 'ORP X1', 'ORF X2', 'OR>= D0 K10', 'AND X5', 'OUT Y0', 'END'].join('\n')
+  );
+
+  // Case B: OR at column 1 after series contact (LD X0 -> AND X1 -> OR X2 -> AND X3 -> OUT Y0) -> exact ANB
+  let progB = createBlankProgram('DVP-SX2', 'Col1_ANB', 1);
+  let curB = { rungIndex: 0, rowIndex: 0, colIndex: 0 };
+  for (const cmd of ['LD X0', 'AND X1', 'OR X2', 'AND X3', 'OUT Y0']) {
+    const res = applyQuickCommandOnProgram(progB, curB, cmd);
+    assert.equal(res.ok, true, `Failed on ${cmd}: ${res.error}`);
+    progB = res.program;
+    curB = res.nextCursor;
+  }
+  const compB = compileLadderToIl(progB);
+  assert.equal(compB.hasErrors, false, JSON.stringify(compB.diagnostics));
+  assert.equal(
+    compB.rawIlText,
+    ['LD X0', 'LD X1', 'OR X2', 'ANB', 'AND X3', 'OUT Y0', 'END'].join('\n')
+  );
+
+  // Case C: Two separate parallel blocks in the same rung (LD X0 OR Y0) AND (X1 OR X2) -> OUT Y0
+  let progC = createBlankProgram('DVP-SX2', 'Two_Parallel_Blocks', 1);
+  let curC = { rungIndex: 0, rowIndex: 0, colIndex: 0 };
+  for (const cmd of ['LD X0', 'OR Y0', 'AND X1', 'OR X2', 'OUT Y0']) {
+    const res = applyQuickCommandOnProgram(progC, curC, cmd);
+    assert.equal(res.ok, true, `Failed on ${cmd}: ${res.error}`);
+    progC = res.program;
+    curC = res.nextCursor;
+  }
+  const compC = compileLadderToIl(progC);
+  assert.equal(compC.hasErrors, false, JSON.stringify(compC.diagnostics));
+  assert.equal(
+    compC.rawIlText,
+    ['LD X0', 'OR Y0', 'LD X1', 'OR X2', 'ANB', 'OUT Y0', 'END'].join('\n')
+  );
+
+  // Case D: Full logic row (cols 0..7 occupied) refuses silent overwrite on 9th logic command
+  let progD = createBlankProgram('DVP-SX2', 'Full_Row_Guard', 1);
+  let curD = { rungIndex: 0, rowIndex: 0, colIndex: 0 };
+  const eight = ['LD X0', 'AND X1', 'AND X2', 'AND X3', 'AND X4', 'AND X5', 'AND X6', 'AND X7'];
+  for (const cmd of eight) {
+    const res = applyQuickCommandOnProgram(progD, curD, cmd);
+    assert.equal(res.ok, true, `Failed on ${cmd}: ${res.error}`);
+    progD = res.program;
+    curD = res.nextCursor;
+  }
+  const ninth = applyQuickCommandOnProgram(progD, curD, 'AND M0');
+  assert.equal(ninth.ok, false, '9th logic element must not overwrite column 7');
+  assert.equal(
+    progD.rungs[0].rows[0][7].element.kind === 'CONTACT'
+      ? progD.rungs[0].rows[0][7].element.address
+      : '',
+    'X7'
+  );
+});
+
+test('Strengthened JSON import validation catches corrupted branchDown, isEnd, versions, END rung anomalies, column errors, and oversized files while keeping valid v1.0 compatibility', () => {
+  const base = createBlankProgram('DVP-SX2', 'Strict_JSON_Test', 1);
+  const withContact = placeElementOnProgram(
+    base,
+    { rungIndex: 0, rowIndex: 0, colIndex: 0 },
+    { kind: 'CONTACT', contactType: 'NO', address: 'X0' },
+    'Baslat'
+  );
+  const validObj = JSON.parse(serializeProgramJson(withContact));
+
+  // 1. Corrupted branchDown (string, number, missing)
+  for (const badVal of ['true', 1, null, undefined]) {
+    const clone = structuredClone(validObj);
+    if (badVal === undefined) {
+      delete clone.rungs[0].rows[0][0].branchDown;
+    } else {
+      clone.rungs[0].rows[0][0].branchDown = badVal;
+    }
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, `branchDown=${String(badVal)} must be rejected`);
+  }
+
+  // 2. Corrupted isEnd (string, number, object)
+  for (const badEnd of ['true', 'false', 1, {}]) {
+    const clone = structuredClone(validObj);
+    clone.rungs[0].isEnd = badEnd;
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, `isEnd=${JSON.stringify(badEnd)} must be rejected`);
+  }
+
+  // 3. Invalid schema versions
+  for (const badVer of ['1.1', '2.0', 1, '', undefined]) {
+    const clone = structuredClone(validObj);
+    if (badVer === undefined) delete clone.version;
+    else clone.version = badVer;
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, `version=${String(badVer)} must be rejected`);
+  }
+
+  // 4. Multiple END rungs
+  {
+    const clone = structuredClone(validObj);
+    clone.rungs.push(structuredClone(clone.rungs[clone.rungs.length - 1]));
+    clone.rungs[clone.rungs.length - 1].id = 'rung-end-dup';
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, 'Multiple END rungs must be rejected');
+  }
+
+  // 5. END rung in the middle
+  {
+    const clone = structuredClone(validObj);
+    const endRung = clone.rungs.pop();
+    clone.rungs.unshift(endRung);
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, 'END rung not at final position must be rejected');
+  }
+
+  // 6. Missing END rung
+  {
+    const clone = structuredClone(validObj);
+    clone.rungs.pop();
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, 'Program without END rung must be rejected');
+  }
+
+  // 7. END element placed inside non-END rung
+  {
+    const clone = structuredClone(validObj);
+    clone.rungs[0].rows[0][LADDER_COIL_COLUMN].element = { kind: 'END' };
+    const res = parseProgramJson(JSON.stringify(clone));
+    assert.equal(res.success, false, 'END element in non-END rung must be rejected');
+  }
+
+  // 8. Extra columns (10) and missing columns (8) and wrong columns metadata
+  {
+    const extra = structuredClone(validObj);
+    extra.rungs[0].rows[0].push({ element: { kind: 'EMPTY' }, branchDown: false });
+    assert.equal(parseProgramJson(JSON.stringify(extra)).success, false);
+
+    const missing = structuredClone(validObj);
+    missing.rungs[0].rows[0].pop();
+    assert.equal(parseProgramJson(JSON.stringify(missing)).success, false);
+
+    const badColMeta = structuredClone(validObj);
+    badColMeta.columns = 10;
+    assert.equal(parseProgramJson(JSON.stringify(badColMeta)).success, false);
+  }
+
+  // 9. Column role mismatch: COIL in logic col 0 or CONTACT in output col 8
+  {
+    const coilInLogic = structuredClone(validObj);
+    coilInLogic.rungs[0].rows[0][0].element = { kind: 'COIL', coilType: 'OUT', address: 'Y0' };
+    assert.equal(parseProgramJson(JSON.stringify(coilInLogic)).success, false);
+
+    const contactInCoil = structuredClone(validObj);
+    contactInCoil.rungs[0].rows[0][LADDER_COIL_COLUMN].element = {
+      kind: 'CONTACT',
+      contactType: 'NO',
+      address: 'X0',
+    };
+    assert.equal(parseProgramJson(JSON.stringify(contactInCoil)).success, false);
+  }
+
+  // 10. Oversized JSON (> MAX_PROJECT_JSON_BYTES) rejected safely
+  {
+    const oversized = `{"version":"1.0","pad":"${'x'.repeat(MAX_PROJECT_JSON_BYTES + 128)}"}`;
+    const res = parseProgramJson(oversized);
+    assert.equal(res.success, false);
+    assert.ok(res.error && res.error.includes('MB'));
+  }
+
+  // 11. Valid legacy v1.0 file (omits optional columns, updatedAt, deviceComments, and isEnd on normal rung) loads cleanly
+  {
+    const legacy = structuredClone(validObj);
+    legacy.model = 'DVP-14SS2';
+    delete legacy.columns;
+    delete legacy.updatedAt;
+    delete legacy.deviceComments;
+    delete legacy.rungs[0].isEnd;
+    const res = parseProgramJson(JSON.stringify(legacy));
+    assert.equal(res.success, true, `Legacy v1.0 project should load cleanly: ${res.error}`);
+    assert.equal(res.program?.model, 'DVP-14SS2');
+    assert.equal(res.program?.columns, 9);
+  }
 });
 
 

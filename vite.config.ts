@@ -87,8 +87,49 @@ export default defineConfig(() => {
         devOptions: {
           enabled: true,
           type: 'module',
+          suppressWarnings: true,
         },
       }),
+      // Prevents vite-plugin-pwa@2.0.0 from calling import.meta.hot.send() before
+      // Vite 8's HMR WebSocket connects (or when DISABLE_HMR=true), which otherwise
+      // throws SendBeforeConnectError in dev/preview environments.
+      {
+        name: 'fix-vite8-pwa-dev-sw-hmr',
+        apply: 'serve',
+        enforce: 'post',
+        transform(code: string, id: string) {
+          if (!id.includes('vite-plugin-pwa/pwa-entry-point-loaded')) {
+            return null;
+          }
+          const hmrDisabled = process.env.DISABLE_HMR === 'true';
+          if (hmrDisabled) {
+            return `
+function registerDevSW() {
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker
+      .register('/dev-sw.js?dev-sw', { scope: '/', type: 'module' })
+      .catch(() => {});
+  }
+}
+export default registerDevSW;
+`;
+          }
+          return code.replace(
+            /function registerDevSW\(\)\s*\{[\s\S]*?export default registerDevSW;/,
+            `function registerDevSW() {
+  if (!import.meta.hot) return;
+  import.meta.hot.on('vite:ws:connect', () => {
+    try {
+      import.meta.hot?.send('vite-plugin-pwa:ready');
+    } catch {
+      // Ignore transient HMR socket state during dev reload
+    }
+  });
+}
+export default registerDevSW;`
+          );
+        },
+      },
       // Copies src/assets into dist/ so root-relative URLs like
       // "/src/assets/images/..." (e.g. generate_image output) still resolve
       // in production builds. Do not remove.

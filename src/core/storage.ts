@@ -10,13 +10,18 @@ import type {
   PlcModelId,
 } from '../types/plc';
 import { validateAddress, validateZrstRange } from './addressing';
-import { createEmptyCell, createEndRung, deduplicateRungIds } from './gridFactory';
-import { LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModels';
+import { deduplicateRungIds } from './gridFactory';
+import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModels';
 
 export const DRAFT_STORAGE_KEY = 'wplsoft_web_dvp_draft_v1';
 export const DRAFT_RECOVERY_KEY = 'wplsoft_web_dvp_recovery_v1';
 export const SAVED_PROJECTS_KEY = 'wplsoft_web_dvp_projects_v1';
 export const CUSTOM_SNIPPETS_KEY = 'wplsoft_web_dvp_snippets_v1';
+
+export const SUPPORTED_SCHEMA_VERSION = '1.0' as const;
+export const MAX_PROJECT_JSON_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
+export const MAX_PROJECT_RUNGS = 500;
+export const MAX_ROWS_PER_RUNG = 32;
 
 const VALID_MODELS = new Set<PlcModelId>(['DVP-SX2', 'DVP-14SS2', 'DVP-12SA2']);
 const VALID_CONTACTS = new Set<ContactKind>(['NO', 'NC', 'RISING', 'FALLING']);
@@ -24,6 +29,19 @@ const VALID_COILS = new Set<CoilKind>(['OUT', 'SET', 'RST']);
 const VALID_COMPARES = new Set<CompareOperator>(['=', '>', '<', '>=', '<=', '<>']);
 const VALID_MATHS = new Set<MathOperator>(['ADD', 'SUB', 'MUL', 'DIV']);
 const VALID_INCDECS = new Set<IncDecOperator>(['INC', 'INCP', 'DEC', 'DECP']);
+const OUTPUT_ELEMENT_KINDS = new Set<CellElement['kind']>([
+  'COIL',
+  'TMR',
+  'CNT',
+  'MOV',
+  'ALT',
+  'ZRST',
+  'CMP',
+  'MATH',
+  'INCDEC',
+  'TRD',
+]);
+const LOGIC_ELEMENT_KINDS = new Set<CellElement['kind']>(['CONTACT', 'COMPARE', 'HLINE']);
 
 export interface StorageWriteResult {
   ok: boolean;
@@ -357,48 +375,125 @@ export function serializeProgramJson(program: LadderProgram): string {
 }
 
 export function parseProgramJson(rawJson: string): JsonImportResult {
+  if (typeof rawJson !== 'string') {
+    return { success: false, error: 'JSON içeriği boş.' };
+  }
+  if (rawJson.length > MAX_PROJECT_JSON_BYTES) {
+    return {
+      success: false,
+      error: `Proje JSON dosyası izin verilen maksimum boyutu (${Math.round(
+        MAX_PROJECT_JSON_BYTES / (1024 * 1024)
+      )} MB) aşıyor.`,
+    };
+  }
+  if (!rawJson.trim()) {
+    return { success: false, error: 'JSON içeriği boş.' };
+  }
+
   try {
     const parsed: unknown = JSON.parse(rawJson);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return { success: false, error: 'Geçersiz JSON proje biçimi (nesne bekleniyor).' };
     }
 
-    const obj = parsed as Partial<LadderProgram>;
-    if (typeof obj.version !== 'string' || !obj.version.startsWith('1.')) {
+    const obj = parsed as Record<string, unknown>;
+
+    // 1. Exact schema version check
+    if (obj.version !== SUPPORTED_SCHEMA_VERSION) {
       return {
         success: false,
-        error: 'Desteklenmeyen proje şema sürümü (version: "1.0" bekleniyor).',
+        error: `Desteklenmeyen proje şema sürümü: "${String(obj.version)}". Tam olarak "${SUPPORTED_SCHEMA_VERSION}" sürümü bekleniyor.`,
       };
     }
 
-    if (obj.model !== undefined && !VALID_MODELS.has(obj.model)) {
+    // 2. Strict PLC model validation
+    if (typeof obj.model !== 'string' || !VALID_MODELS.has(obj.model as PlcModelId)) {
       return {
         success: false,
-        error: `Desteklenmeyen PLC modeli: "${String(obj.model)}". Geçerli modeller: DVP-SX2, DVP-14SS2, DVP-12SA2.`,
+        error: `Geçersiz veya eksik PLC modeli: "${String(obj.model)}". Geçerli modeller: DVP-SX2, DVP-14SS2, DVP-12SA2.`,
       };
     }
-    const model: PlcModelId = obj.model ?? 'DVP-SX2';
+    const model = obj.model as PlcModelId;
 
+    // 3. Column count check (optional for minimal legacy files, but must match 9 when present)
+    if (obj.columns !== undefined && obj.columns !== LADDER_TOTAL_COLUMNS) {
+      return {
+        success: false,
+        error: `Geçersiz sütun sayısı (columns: ${String(obj.columns)}). Beklenen sütun sayısı: ${LADDER_TOTAL_COLUMNS}.`,
+      };
+    }
+
+    // 4. Rungs array presence & safety limits
     if (!Array.isArray(obj.rungs) || obj.rungs.length === 0) {
       return {
         success: false,
         error: 'Proje dosyasında geçerli Ladder satırı (rungs) bulunamadı.',
       };
     }
+    if (obj.rungs.length > MAX_PROJECT_RUNGS) {
+      return {
+        success: false,
+        error: `Proje dosyasında izin verilenden fazla ağ bulunuyor (${obj.rungs.length} > ${MAX_PROJECT_RUNGS}).`,
+      };
+    }
 
     const normalizedRungs: LadderRung[] = [];
-    let hasEnd = false;
+    let endCount = 0;
+    let endRungIndex = -1;
 
     for (let i = 0; i < obj.rungs.length; i += 1) {
-      const r = obj.rungs[i];
-      if (!r || typeof r !== 'object' || !Array.isArray(r.rows) || r.rows.length === 0) {
+      const rawRung = obj.rungs[i];
+      if (!rawRung || typeof rawRung !== 'object' || Array.isArray(rawRung)) {
         return {
           success: false,
-          error: `Ağ ${i} yapısı bozuk veya eksik.`,
+          error: `Ağ ${i} geçerli bir nesne değil.`,
         };
       }
-      if (r.isEnd) {
-        hasEnd = true;
+      const r = rawRung as Record<string, unknown>;
+
+      // Strict boolean check for isEnd (undefined permitted for backward compatibility on non-END rungs)
+      if (r.isEnd !== undefined && typeof r.isEnd !== 'boolean') {
+        return {
+          success: false,
+          error: `Ağ ${i}: "isEnd" alanı boolean (true/false) olmalıdır (bulunan: ${typeof r.isEnd}).`,
+        };
+      }
+      const isEnd = r.isEnd === true;
+      if (isEnd) {
+        endCount += 1;
+        endRungIndex = i;
+        if (endCount > 1) {
+          return {
+            success: false,
+            error: `Proje dosyasında birden fazla END ağı bulunamaz (Ağ ${i}).`,
+          };
+        }
+        if (i !== obj.rungs.length - 1) {
+          return {
+            success: false,
+            error: `END ağı yalnızca programın en son satırında bulunabilir (Ağ ${i} konumunda bulundu).`,
+          };
+        }
+      }
+
+      if (r.comment !== undefined && typeof r.comment !== 'string') {
+        return {
+          success: false,
+          error: `Ağ ${i}: "comment" alanı metin (string) olmalıdır.`,
+        };
+      }
+
+      if (!Array.isArray(r.rows) || r.rows.length === 0) {
+        return {
+          success: false,
+          error: `Ağ ${i}: "rows" alanı en az 1 satır içeren bir dizi olmalıdır.`,
+        };
+      }
+      if (r.rows.length > MAX_ROWS_PER_RUNG) {
+        return {
+          success: false,
+          error: `Ağ ${i}: Satır sayısı sınırı aşıldı (${r.rows.length} > ${MAX_ROWS_PER_RUNG}).`,
+        };
       }
 
       const normalizedRows = [];
@@ -407,22 +502,33 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
         if (!Array.isArray(row)) {
           return {
             success: false,
-            error: `Ağ ${i} satır ${rowIdx + 1} geçerli bir dizi değil.`,
+            error: `Ağ ${i} Satır ${rowIdx + 1}: Geçerli bir hücre dizisi değil.`,
           };
         }
+        if (row.length !== LADDER_TOTAL_COLUMNS) {
+          return {
+            success: false,
+            error: `Ağ ${i} Satır ${rowIdx + 1}: Hücre sayısı ${row.length}, beklenen tam sütun sayısı ${LADDER_TOTAL_COLUMNS} olmalıdır.`,
+          };
+        }
+
         const normalizedRow = [];
         for (let colIdx = 0; colIdx < LADDER_TOTAL_COLUMNS; colIdx += 1) {
-          const cell = row[colIdx];
-          if (cell === undefined) {
-            normalizedRow.push(createEmptyCell());
-            continue;
-          }
-          if (!cell || typeof cell !== 'object' || Array.isArray(cell)) {
+          const rawCell = row[colIdx];
+          if (!rawCell || typeof rawCell !== 'object' || Array.isArray(rawCell)) {
             return {
               success: false,
-              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}) hücre yapısı bozuk.`,
+              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}): Hücre nesnesi bozuk veya eksik.`,
             };
           }
+          const cell = rawCell as Record<string, unknown>;
+          if (typeof cell.branchDown !== 'boolean') {
+            return {
+              success: false,
+              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}): "branchDown" alanı boolean (true/false) olmalıdır (bulunan: ${typeof cell.branchDown}).`,
+            };
+          }
+
           const validated = validateCellElement(
             cell.element,
             model,
@@ -431,35 +537,94 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
           if (!validated.valid) {
             return { success: false, error: validated.error };
           }
+
+          const el = validated.element;
+          // Enforce column/rung structural integrity
+          if (!isEnd && el.kind === 'END') {
+            return {
+              success: false,
+              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}): END elemanı yalnızca isEnd: true olan son ağda bulunabilir.`,
+            };
+          }
+          if (colIdx < LADDER_COIL_COLUMN && OUTPUT_ELEMENT_KINDS.has(el.kind)) {
+            return {
+              success: false,
+              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}): Çıkış/uygulama komutu (${el.kind}) yalnızca son sütunda (Sütun ${LADDER_COIL_COLUMN}) bulunabilir.`,
+            };
+          }
+          if (colIdx === LADDER_COIL_COLUMN && LOGIC_ELEMENT_KINDS.has(el.kind)) {
+            return {
+              success: false,
+              error: `Ağ ${i} (Satır ${rowIdx + 1}, Sütun ${colIdx + 1}): Lojik eleman (${el.kind}) çıkış sütununda bulunamaz.`,
+            };
+          }
+
           normalizedRow.push({
-            branchDown: Boolean(cell.branchDown),
-            element: validated.element,
+            branchDown: cell.branchDown,
+            element: el,
           });
         }
         normalizedRows.push(normalizedRow);
       }
 
+      if (isEnd) {
+        const hasEndMarker = normalizedRows.some(
+          (nr) => nr[LADDER_COIL_COLUMN]?.element.kind === 'END'
+        );
+        if (!hasEndMarker) {
+          return {
+            success: false,
+            error: `Ağ ${i}: END ağının çıkış sütununda END elemanı eksik.`,
+          };
+        }
+      }
+
       normalizedRungs.push({
-        id: typeof r.id === 'string' && r.id ? r.id : `rung-json-${i}`,
+        id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rung-json-${i}`,
         comment: typeof r.comment === 'string' && r.comment.trim() ? r.comment.trim() : undefined,
-        isEnd: Boolean(r.isEnd),
+        isEnd: isEnd || undefined,
         rows: normalizedRows,
       });
     }
 
-    if (!hasEnd) {
-      normalizedRungs.push(createEndRung());
+    if (endCount === 0 || endRungIndex !== obj.rungs.length - 1) {
+      return {
+        success: false,
+        error: 'Proje dosyasında son satırda tek bir geçerli END ağı bulunmalıdır.',
+      };
     }
 
     const deviceComments: Record<string, string> = {};
-    if (obj.deviceComments && typeof obj.deviceComments === 'object' && !Array.isArray(obj.deviceComments)) {
-      for (const [k, v] of Object.entries(obj.deviceComments)) {
-        if (typeof v === 'string' && v.trim()) {
+    if (obj.deviceComments !== undefined) {
+      if (
+        !obj.deviceComments ||
+        typeof obj.deviceComments !== 'object' ||
+        Array.isArray(obj.deviceComments)
+      ) {
+        return {
+          success: false,
+          error: '"deviceComments" alanı anahtar-değer nesnesi olmalıdır.',
+        };
+      }
+      for (const [k, v] of Object.entries(obj.deviceComments as Record<string, unknown>)) {
+        if (typeof v !== 'string') {
+          return {
+            success: false,
+            error: `deviceComments["${k}"] değeri metin (string) olmalıdır.`,
+          };
+        }
+        if (v.trim()) {
           deviceComments[k.trim().toUpperCase()] = v.trim();
         }
       }
     }
 
+    if (obj.projectName !== undefined && typeof obj.projectName !== 'string') {
+      return {
+        success: false,
+        error: '"projectName" alanı metin (string) olmalıdır.',
+      };
+    }
     const projectName =
       typeof obj.projectName === 'string' && obj.projectName.trim()
         ? obj.projectName.trim()
@@ -468,7 +633,7 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
     return {
       success: true,
       program: {
-        version: '1.0',
+        version: SUPPORTED_SCHEMA_VERSION,
         projectName,
         model,
         columns: LADDER_TOTAL_COLUMNS,
