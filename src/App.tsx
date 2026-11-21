@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   CellElement,
   CursorPosition,
@@ -8,27 +8,59 @@ import type {
 import { FUNCTION_TOOLBAR_ITEMS, PLC_MODELS } from './core/plcModels';
 import { useLadderEditor } from './hooks/useLadderEditor';
 import { usePlcSimulator } from './hooks/usePlcSimulator';
+import { useViewportLayout } from './hooks/useViewportLayout';
 import { WplHeader } from './components/layout/WplHeader';
 import { FunctionToolbar } from './components/layout/FunctionToolbar';
 import { MobileCommandPalette } from './components/layout/MobileCommandPalette';
 import { QuickCommandBar } from './components/layout/QuickCommandBar';
-import { OnlineSimBar } from './components/layout/OnlineSimBar';
+import { OnlineSimBar, type ZoomDensity } from './components/layout/OnlineSimBar';
 import { LadderGrid } from './components/ladder/LadderGrid';
-import { CellEditModal } from './components/ladder/CellEditModal';
 import { IlCodeDrawer } from './components/panels/IlCodeDrawer';
-import { DeviceMonitor } from './components/panels/DeviceMonitor';
 import { StatusBar } from './components/layout/StatusBar';
-import { ShortcutsModal } from './components/modals/ShortcutsModal';
-import { TemplatesModal } from './components/modals/TemplatesModal';
-import { ProjectIoModal } from './components/modals/ProjectIoModal';
-import { SearchCrossRefModal } from './components/modals/SearchCrossRefModal';
-import {
-  OnlineControlModal,
-  type OnlineTargetDescriptor,
-} from './components/modals/OnlineControlModal';
-import { WiringDiagramModal } from './components/panels/WiringDiagramModal';
+import type { OnlineTargetDescriptor } from './components/modals/OnlineControlModal';
 import { OfflineIndicator } from './components/pwa/OfflineIndicator';
 import { ToastBanner } from './components/layout/ToastBanner';
+
+const CellEditModal = lazy(() =>
+  import('./components/ladder/CellEditModal').then((m) => ({
+    default: m.CellEditModal,
+  }))
+);
+const DeviceMonitor = lazy(() =>
+  import('./components/panels/DeviceMonitor').then((m) => ({
+    default: m.DeviceMonitor,
+  }))
+);
+const ShortcutsModal = lazy(() =>
+  import('./components/modals/ShortcutsModal').then((m) => ({
+    default: m.ShortcutsModal,
+  }))
+);
+const TemplatesModal = lazy(() =>
+  import('./components/modals/TemplatesModal').then((m) => ({
+    default: m.TemplatesModal,
+  }))
+);
+const ProjectIoModal = lazy(() =>
+  import('./components/modals/ProjectIoModal').then((m) => ({
+    default: m.ProjectIoModal,
+  }))
+);
+const SearchCrossRefModal = lazy(() =>
+  import('./components/modals/SearchCrossRefModal').then((m) => ({
+    default: m.SearchCrossRefModal,
+  }))
+);
+const OnlineControlModal = lazy(() =>
+  import('./components/modals/OnlineControlModal').then((m) => ({
+    default: m.OnlineControlModal,
+  }))
+);
+const WiringDiagramModal = lazy(() =>
+  import('./components/panels/WiringDiagramModal').then((m) => ({
+    default: m.WiringDiagramModal,
+  }))
+);
 
 const VALID_FUNCTION_KEYS = new Set<string>([
   'F1',
@@ -157,6 +189,41 @@ function buildOnlineTargetForElement(
         : null;
     }
 
+    case 'TWR': {
+      const addrs = uniqueWordAddrs([el.source]);
+      return addrs.length > 0
+        ? { mode: 'value', addresses: addrs, comment: deviceComments[el.source] ?? el.comment }
+        : null;
+    }
+
+    case 'SQR':
+    case 'FLOAT_MOV':
+    case 'FLOAT_UNARY': {
+      const addrs = uniqueWordAddrs([el.destination, el.source]);
+      return addrs.length > 0
+        ? { mode: 'value', addresses: addrs, comment: deviceComments[el.destination] ?? el.comment }
+        : null;
+    }
+
+    case 'FLOAT_MATH': {
+      const addrs = uniqueWordAddrs([el.destination, el.source1, el.source2]);
+      return addrs.length > 0
+        ? { mode: 'value', addresses: addrs, comment: deviceComments[el.destination] ?? el.comment }
+        : null;
+    }
+
+    case 'TZCP': {
+      const addrs = uniqueWordAddrs([el.current, el.start1, el.start2]);
+      if (addrs.length > 0) {
+        return { mode: 'value', addresses: addrs, comment: deviceComments[el.destination] ?? el.comment };
+      }
+      return {
+        mode: 'bit',
+        address: el.destination.trim().toUpperCase(),
+        comment: deviceComments[el.destination] ?? el.comment,
+      };
+    }
+
     case 'ZRST': {
       const addrs = uniqueWordAddrs([el.start, el.end]);
       if (addrs.length > 0) {
@@ -171,6 +238,7 @@ function buildOnlineTargetForElement(
 }
 
 export default function App() {
+  const viewport = useViewportLayout();
   const [isOnlineMode, setIsOnlineMode] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [isTemplatesModalOpen, setIsTemplatesModalOpen] = useState(false);
@@ -179,11 +247,34 @@ export default function App() {
   const [isSearchModalOpen, setIsSearchModalOpen] = useState(false);
   const [onlineControlTarget, setOnlineControlTarget] =
     useState<OnlineTargetDescriptor | null>(null);
-  const [showIlPanel, setShowIlPanel] = useState(() =>
-    typeof window !== 'undefined' ? window.innerWidth >= 1024 : true
+  const [showIlPanel, setShowIlPanel] = useState(() => viewport.isDesktopWide);
+  const [zoomDensity, setZoomDensity] = useState<ZoomDensity>(() =>
+    viewport.isCompactTouch ? 'compact' : 'normal'
   );
+  const [showQuickCmd, setShowQuickCmd] = useState<boolean>(() => viewport.isDesktopWide);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const prevCompactRef = useRef<boolean>(viewport.isCompactTouch);
+  const prevLandscapeRef = useRef<boolean>(viewport.isPhoneLandscape);
+
+  // Smoothly adapt layout defaults when rotating phone or resizing across desktop/compact breakpoints
+  useEffect(() => {
+    const enteredCompact = viewport.isCompactTouch && !prevCompactRef.current;
+    const leftCompact = !viewport.isCompactTouch && prevCompactRef.current;
+    const enteredLandscape = viewport.isPhoneLandscape && !prevLandscapeRef.current;
+
+    if (enteredLandscape || enteredCompact) {
+      setShowIlPanel(false);
+      setShowQuickCmd(false);
+      setZoomDensity('compact');
+    } else if (leftCompact && viewport.isDesktopWide) {
+      setZoomDensity('normal');
+      setShowQuickCmd(true);
+    }
+
+    prevCompactRef.current = viewport.isCompactTouch;
+    prevLandscapeRef.current = viewport.isPhoneLandscape;
+  }, [viewport.isCompactTouch, viewport.isDesktopWide, viewport.isPhoneLandscape]);
 
   const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
@@ -233,6 +324,9 @@ export default function App() {
   );
 
   const handleCompileCheck = useCallback(() => {
+    if (viewport.isPhoneLandscape && simulator.isOnline) {
+      simulator.setIsMonitorOpen(false);
+    }
     setShowIlPanel(true);
     if (errorCount > 0) {
       showToast(
@@ -247,7 +341,34 @@ export default function App() {
         `Derleme başarılı: ${editor.compileResult.stepCount} Step, 0 hata, 0 uyarı.`
       );
     }
-  }, [editor.compileResult.stepCount, errorCount, showToast, warningCount]);
+  }, [
+    editor.compileResult.stepCount,
+    errorCount,
+    showToast,
+    simulator,
+    viewport.isPhoneLandscape,
+    warningCount,
+  ]);
+
+  const handleToggleIlPanel = useCallback(() => {
+    setShowIlPanel((prev) => {
+      const next = !prev;
+      if (next && viewport.isPhoneLandscape && simulator.isOnline) {
+        simulator.setIsMonitorOpen(false);
+      }
+      return next;
+    });
+  }, [simulator, viewport.isPhoneLandscape]);
+
+  const handleToggleMonitor = useCallback(() => {
+    simulator.setIsMonitorOpen((prev) => {
+      const next = !prev;
+      if (next && viewport.isPhoneLandscape) {
+        setShowIlPanel(false);
+      }
+      return next;
+    });
+  }, [simulator, viewport.isPhoneLandscape]);
 
   const handleToggleOnline = useCallback(() => {
     if (simulator.isOnline) {
@@ -258,11 +379,11 @@ export default function App() {
     if (editor.editModal) {
       editor.handleCancelModal();
     }
-    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+    if (!viewport.isDesktopWide) {
       setShowIlPanel(false);
     }
     simulator.enterOnline(errorCount > 0);
-  }, [editor, errorCount, simulator]);
+  }, [editor, errorCount, simulator, viewport.isDesktopWide]);
 
   const handleLoadTemplate = useCallback(
     (templateProgram: LadderProgram, startSimulation: boolean) => {
@@ -272,14 +393,27 @@ export default function App() {
       );
       setIsTemplatesModalOpen(false);
       if (startSimulation) {
-        if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+        if (!viewport.isDesktopWide) {
           setShowIlPanel(false);
         }
         simulator.enterOnline(false, templateProgram);
       }
     },
-    [editor, simulator]
+    [editor, simulator, viewport.isDesktopWide]
   );
+
+  const cycleZoomDensity = useCallback(() => {
+    setZoomDensity((prev) =>
+      prev === 'compact' ? 'normal' : prev === 'normal' ? 'large' : 'compact'
+    );
+  }, []);
+
+  const isSelectedEditable =
+    !simulator.isOnline &&
+    editor.selectedCell !== null &&
+    editor.selectedCell.element.kind !== 'EMPTY' &&
+    editor.selectedCell.element.kind !== 'HLINE' &&
+    editor.selectedCell.element.kind !== 'END';
 
   const handleOnlineCellClick = useCallback(
     (pos: CursorPosition) => {
@@ -359,7 +493,7 @@ export default function App() {
   }, [anyModalOpen, editor, isOnlineMode]);
 
   return (
-    <div className="h-dvh w-full flex flex-col overflow-hidden bg-[#ECEEF2]">
+    <div className="h-dvh w-full flex flex-col overflow-hidden bg-[#ECEEF2] wpl-safe-shell">
       <WplHeader
         projectName={editor.program.projectName}
         model={editor.program.model}
@@ -370,12 +504,13 @@ export default function App() {
         isRunning={simulator.simState.running}
         errorCount={errorCount}
         warningCount={warningCount}
+        compactHeight={viewport.isPhoneLandscape}
         onModelChange={editor.setModel}
         onUndo={editor.undo}
         onRedo={editor.redo}
         onCompileCheck={handleCompileCheck}
         onToggleOnline={handleToggleOnline}
-        onToggleIlPanel={() => setShowIlPanel((v) => !v)}
+        onToggleIlPanel={handleToggleIlPanel}
         onOpenTemplatesModal={() => setIsTemplatesModalOpen(true)}
         onOpenWiringModal={() => setIsWiringModalOpen(true)}
         onOpenProjectIoModal={() => setIsProjectIoModalOpen(true)}
@@ -389,37 +524,57 @@ export default function App() {
           scanCount={simulator.simState.scanCount}
           scanTimeMs={simulator.simState.scanTimeMs}
           speedMultiplier={simulator.speedMultiplier}
+          zoomDensity={zoomDensity}
+          isMonitorOpen={simulator.isMonitorOpen}
+          compactHeight={viewport.isPhoneLandscape}
+          sideDockMonitor={viewport.isPhoneLandscape}
           onChangeSpeed={simulator.setSpeedMultiplier}
+          onChangeZoom={setZoomDensity}
+          onToggleMonitor={handleToggleMonitor}
           onRun={() => simulator.setRunning(true)}
           onStop={() => simulator.setRunning(false)}
           onSingleStep={simulator.singleStep}
           onResetMemory={simulator.resetMemory}
-          onExitOnline={() => {
-            setOnlineControlTarget(null);
-            simulator.exitOnline();
-          }}
         />
       ) : (
         <>
           <FunctionToolbar
             activeTool={editor.activeTool}
             onSelectTool={editor.triggerTool}
+            hidden={viewport.isCompactTouch}
           />
           <MobileCommandPalette
+            visible={viewport.isCompactTouch}
+            compactHeight={viewport.isPhoneLandscape}
+            activeTool={editor.activeTool}
             model={editor.program.model}
             recentCommands={editor.recentCommands}
+            isSelectedEditable={isSelectedEditable}
+            showQuickCmd={showQuickCmd}
+            zoomDensity={zoomDensity}
             onSelectTool={editor.triggerTool}
             onPlaceElement={editor.placePresetElement}
+            onEditSelectedCell={() => editor.openEditModalForCell(editor.cursor)}
+            onToggleQuickCmd={() => setShowQuickCmd((v) => !v)}
+            onCycleZoom={cycleZoomDensity}
           />
-          <QuickCommandBar onExecuteCommand={editor.applyQuickCommand} />
+          {showQuickCmd && (
+            <QuickCommandBar
+              compact={viewport.isCompactTouch}
+              onExecuteCommand={editor.applyQuickCommand}
+              onClose={() => setShowQuickCmd(false)}
+            />
+          )}
         </>
       )}
 
-      {/* Split Workspace: Ladder Grid + Live IL Drawer */}
+      {/* Split Workspace: Ladder Grid + Side-Docked IL or Phone-Landscape Device Monitor */}
       <div className="flex-1 flex min-h-0 overflow-hidden relative">
         <div
           className={`flex-1 flex min-h-0 min-w-0 ${
-            showIlPanel ? 'hidden lg:flex' : 'flex'
+            showIlPanel && !viewport.isDesktopWide && !viewport.isPhoneLandscape
+              ? 'hidden'
+              : 'flex'
           }`}
         >
           <LadderGrid
@@ -427,66 +582,96 @@ export default function App() {
             compileResult={editor.compileResult}
             cursor={editor.cursor}
             selectedCell={editor.selectedCell}
-            activeToolDef={activeToolDef}
             isOnline={simulator.isOnline}
             simState={simulator.isOnline ? simulator.simState : null}
-            canUndo={editor.canUndo}
-            canRedo={editor.canRedo}
-            onUndo={editor.undo}
-            onRedo={editor.redo}
+            zoomDensity={zoomDensity}
+            compactMode={viewport.isCompactTouch}
+            showQuickCmd={showQuickCmd}
+            onChangeZoom={setZoomDensity}
+            onToggleQuickCmd={() => setShowQuickCmd((v) => !v)}
             onSelectCell={editor.handleSelectCell}
             onActivateCell={editor.handleActivateCell}
             onOnlineCellClick={handleOnlineCellClick}
             onEditSelectedCell={() => editor.openEditModalForCell(editor.cursor)}
-            onToggleBranchAtCursor={() => editor.triggerTool('F10')}
-            onInsertRungAfter={editor.handleInsertRungAfter}
             onDeleteRung={editor.handleDeleteRung}
             onSetRungComment={editor.setRungComment}
           />
         </div>
 
         {showIlPanel && (
-          <div className="w-full lg:w-[300px] xl:w-[320px] shrink-0 h-full">
+          <div
+            className={
+              viewport.isPhoneLandscape
+                ? 'w-[266px] sm:w-[292px] shrink-0 h-full'
+                : 'w-full lg:w-[300px] xl:w-[320px] shrink-0 h-full'
+            }
+          >
             <IlCodeDrawer
               compileResult={editor.compileResult}
               activeRungIndex={editor.cursor.rungIndex}
               isOnline={simulator.isOnline}
               onSelectRung={(rungIdx) => {
                 editor.jumpToRung(rungIdx);
-                if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                if (!viewport.isDesktopWide && !viewport.isPhoneLandscape) {
                   setShowIlPanel(false);
                 }
               }}
               onSelectDiagnosticCell={(rungIdx, rowIdx, colIdx) => {
                 editor.jumpToCell(rungIdx, rowIdx, colIdx);
-                if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                if (!viewport.isDesktopWide && !viewport.isPhoneLandscape) {
                   setShowIlPanel(false);
                 }
               }}
               onOpenProjectIo={() => setIsProjectIoModalOpen(true)}
+              onClose={() => setShowIlPanel(false)}
               onNotify={showToast}
             />
           </div>
         )}
+
+        {/* Phone Landscape: Dock Device Monitor on the RIGHT so Ladder Diagram keeps full height */}
+        {simulator.isOnline && viewport.isPhoneLandscape && (
+          <Suspense fallback={null}>
+            <DeviceMonitor
+              program={editor.program}
+              modelSpec={modelSpec}
+              simState={simulator.simState}
+              inputModes={simulator.inputModes}
+              isOpen={simulator.isMonitorOpen}
+              dockMode="right"
+              onToggleOpen={handleToggleMonitor}
+              onSetInputBit={simulator.setInputBit}
+              onToggleInputBit={simulator.toggleInputBit}
+              onSetInputMode={simulator.setInputMode}
+              onToggleRelayBit={simulator.toggleRelayBit}
+              onSetRegisterValue={simulator.setRegisterValue}
+              onSyncRtcNow={simulator.syncRtcNow}
+              onShiftRtcSeconds={simulator.shiftRtcSeconds}
+            />
+          </Suspense>
+        )}
       </div>
 
-      {/* Auto-opened Bottom Device Monitor Drawer in Online Simulation Mode */}
-      {simulator.isOnline && (
-        <DeviceMonitor
-          program={editor.program}
-          modelSpec={modelSpec}
-          simState={simulator.simState}
-          inputModes={simulator.inputModes}
-          isOpen={simulator.isMonitorOpen}
-          onToggleOpen={() => simulator.setIsMonitorOpen((v) => !v)}
-          onSetInputBit={simulator.setInputBit}
-          onToggleInputBit={simulator.toggleInputBit}
-          onSetInputMode={simulator.setInputMode}
-          onToggleRelayBit={simulator.toggleRelayBit}
-          onSetRegisterValue={simulator.setRegisterValue}
-          onSyncRtcNow={simulator.syncRtcNow}
-          onShiftRtcSeconds={simulator.shiftRtcSeconds}
-        />
+      {/* Portrait & Desktop: Bottom Collapsible Device Monitor Drawer */}
+      {simulator.isOnline && !viewport.isPhoneLandscape && (
+        <Suspense fallback={null}>
+          <DeviceMonitor
+            program={editor.program}
+            modelSpec={modelSpec}
+            simState={simulator.simState}
+            inputModes={simulator.inputModes}
+            isOpen={simulator.isMonitorOpen}
+            dockMode="bottom"
+            onToggleOpen={handleToggleMonitor}
+            onSetInputBit={simulator.setInputBit}
+            onToggleInputBit={simulator.toggleInputBit}
+            onSetInputMode={simulator.setInputMode}
+            onToggleRelayBit={simulator.toggleRelayBit}
+            onSetRegisterValue={simulator.setRegisterValue}
+            onSyncRtcNow={simulator.syncRtcNow}
+            onShiftRtcSeconds={simulator.shiftRtcSeconds}
+          />
+        </Suspense>
       )}
 
       <StatusBar
@@ -502,84 +687,93 @@ export default function App() {
         scanCount={simulator.simState.scanCount}
         scanTimeMs={simulator.simState.scanTimeMs}
         storageError={editor.storageError}
+        hidden={viewport.isPhoneLandscape}
       />
 
-      {!simulator.isOnline && editor.editModal && (
-        <CellEditModal
-          key={`${editor.editModal.position.rungIndex}-${editor.editModal.position.rowIndex}-${editor.editModal.position.colIndex}-${editor.editModal.element.kind}`}
-          element={editor.editModal.element}
-          isNewPlacement={editor.editModal.isNewPlacement}
-          model={editor.program.model}
-          deviceComments={editor.program.deviceComments}
-          onSave={editor.handleSaveModal}
-          onDelete={editor.handleDeleteFromModal}
-          onCancel={editor.handleCancelModal}
-        />
-      )}
+      <Suspense fallback={null}>
+        {!simulator.isOnline && editor.editModal && (
+          <CellEditModal
+            key={`${editor.editModal.position.rungIndex}-${editor.editModal.position.rowIndex}-${editor.editModal.position.colIndex}-${editor.editModal.element.kind}`}
+            element={editor.editModal.element}
+            isNewPlacement={editor.editModal.isNewPlacement}
+            model={editor.program.model}
+            deviceComments={editor.program.deviceComments}
+            onSave={editor.handleSaveModal}
+            onDelete={editor.handleDeleteFromModal}
+            onCancel={editor.handleCancelModal}
+          />
+        )}
 
-      {simulator.isOnline && onlineControlTarget && (
-        <OnlineControlModal
-          target={onlineControlTarget}
-          simState={simulator.simState}
-          onSetInputBit={simulator.setInputBit}
-          onSetRelayBit={simulator.setRelayBit}
-          onPulseBit={simulator.pulseBit}
-          onSetRegisterValue={simulator.setRegisterValue}
-          onSetTimerValue={simulator.setTimerValue}
-          onSetCounterValue={simulator.setCounterValue}
-          onNotify={showToast}
-          onClose={() => setOnlineControlTarget(null)}
-        />
-      )}
+        {simulator.isOnline && onlineControlTarget && (
+          <OnlineControlModal
+            target={onlineControlTarget}
+            simState={simulator.simState}
+            onSetInputBit={simulator.setInputBit}
+            onSetRelayBit={simulator.setRelayBit}
+            onPulseBit={simulator.pulseBit}
+            onSetRegisterValue={simulator.setRegisterValue}
+            onSetTimerValue={simulator.setTimerValue}
+            onSetCounterValue={simulator.setCounterValue}
+            onNotify={showToast}
+            onClose={() => setOnlineControlTarget(null)}
+          />
+        )}
 
-      <TemplatesModal
-        isOpen={isTemplatesModalOpen}
-        model={editor.program.model}
-        currentProgram={editor.program}
-        onLoadTemplate={handleLoadTemplate}
-        onNotify={showToast}
-        onClose={() => setIsTemplatesModalOpen(false)}
-      />
+        {isTemplatesModalOpen && (
+          <TemplatesModal
+            isOpen={isTemplatesModalOpen}
+            model={editor.program.model}
+            currentProgram={editor.program}
+            onLoadTemplate={handleLoadTemplate}
+            onNotify={showToast}
+            onClose={() => setIsTemplatesModalOpen(false)}
+          />
+        )}
 
-      {isWiringModalOpen && (
-        <WiringDiagramModal
-          isOpen={isWiringModalOpen}
-          program={editor.program}
-          onClose={() => setIsWiringModalOpen(false)}
-        />
-      )}
+        {isWiringModalOpen && (
+          <WiringDiagramModal
+            isOpen={isWiringModalOpen}
+            program={editor.program}
+            onClose={() => setIsWiringModalOpen(false)}
+          />
+        )}
 
-      {isProjectIoModalOpen && (
-        <ProjectIoModal
-          isOpen={isProjectIoModalOpen}
-          program={editor.program}
-          compileResult={editor.compileResult}
-          onImportProgram={editor.loadExternalProgram}
-          onRenameProject={editor.setProjectName}
-          onResetGrid={editor.handleResetGrid}
-          onNotify={showToast}
-          onClose={() => setIsProjectIoModalOpen(false)}
-        />
-      )}
+        {isProjectIoModalOpen && (
+          <ProjectIoModal
+            isOpen={isProjectIoModalOpen}
+            program={editor.program}
+            compileResult={editor.compileResult}
+            onImportProgram={editor.loadExternalProgram}
+            onRenameProject={editor.setProjectName}
+            onResetGrid={editor.handleResetGrid}
+            onNotify={showToast}
+            onClose={() => setIsProjectIoModalOpen(false)}
+          />
+        )}
 
-      <SearchCrossRefModal
-        isOpen={isSearchModalOpen}
-        program={editor.program}
-        isLocked={simulator.isOnline}
-        onJumpToCell={(rungIdx, rowIdx, colIdx) => {
-          editor.jumpToCell(rungIdx, rowIdx, colIdx);
-          if (typeof window !== 'undefined' && window.innerWidth < 1024) {
-            setShowIlPanel(false);
-          }
-        }}
-        onUpdateDeviceComment={editor.setDeviceComment}
-        onClose={() => setIsSearchModalOpen(false)}
-      />
+        {isSearchModalOpen && (
+          <SearchCrossRefModal
+            isOpen={isSearchModalOpen}
+            program={editor.program}
+            isLocked={simulator.isOnline}
+            onJumpToCell={(rungIdx, rowIdx, colIdx) => {
+              editor.jumpToCell(rungIdx, rowIdx, colIdx);
+              if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+                setShowIlPanel(false);
+              }
+            }}
+            onUpdateDeviceComment={editor.setDeviceComment}
+            onClose={() => setIsSearchModalOpen(false)}
+          />
+        )}
 
-      <ShortcutsModal
-        isOpen={isShortcutsModalOpen}
-        onClose={() => setIsShortcutsModalOpen(false)}
-      />
+        {isShortcutsModalOpen && (
+          <ShortcutsModal
+            isOpen={isShortcutsModalOpen}
+            onClose={() => setIsShortcutsModalOpen(false)}
+          />
+        )}
+      </Suspense>
 
       <OfflineIndicator />
       <ToastBanner message={toastMessage} onDismiss={() => setToastMessage(null)} />

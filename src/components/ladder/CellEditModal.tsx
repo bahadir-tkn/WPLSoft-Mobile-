@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Trash2, X, XCircle } from 'lucide-react';
+import { shouldAutoFocusInput } from '../../core/clipboard';
 import type {
   AddressRole,
   CellElement,
   CoilKind,
   CompareOperator,
   ContactKind,
+  FloatMathOperator,
   IncDecOperator,
   MathOperator,
   PlcModelId,
@@ -49,11 +51,22 @@ type AppCmdKind =
   | 'SUB'
   | 'MUL'
   | 'DIV'
+  | 'SQR'
+  | 'DMOVR'
+  | 'DADDR'
+  | 'DSUBR'
+  | 'DMULR'
+  | 'DDIVR'
+  | 'DESQR'
+  | 'FLT'
   | 'INC'
   | 'INCP'
   | 'DEC'
   | 'DECP'
-  | 'TRD';
+  | 'TRD'
+  | 'TWR'
+  | 'TWRP'
+  | 'TZCP';
 
 const APP_CMD_GROUPS: {
   label: string;
@@ -80,6 +93,19 @@ const APP_CMD_GROUPS: {
     ],
   },
   {
+    label: '32-Bit Float & Karekök',
+    items: [
+      { id: 'SQR', short: 'SQR' },
+      { id: 'FLT', short: 'FLT' },
+      { id: 'DMOVR', short: 'DMOVR' },
+      { id: 'DESQR', short: 'DESQR' },
+      { id: 'DADDR', short: 'DADDR' },
+      { id: 'DSUBR', short: 'DSUBR' },
+      { id: 'DMULR', short: 'DMULR' },
+      { id: 'DDIVR', short: 'DDIVR' },
+    ],
+  },
+  {
     label: 'Artır / Azalt & RTC',
     items: [
       { id: 'INC', short: 'INC' },
@@ -87,6 +113,9 @@ const APP_CMD_GROUPS: {
       { id: 'DEC', short: 'DEC' },
       { id: 'DECP', short: 'DECP' },
       { id: 'TRD', short: 'TRD' },
+      { id: 'TWR', short: 'TWR' },
+      { id: 'TWRP', short: 'TWRP' },
+      { id: 'TZCP', short: 'TZCP' },
     ],
   },
 ];
@@ -212,6 +241,14 @@ function buildQuickPickGroups(role: AddressRole, model: PlcModelId): QuickPickGr
     })),
   };
 
+  const fConstGroup: QuickPickGroup = {
+    id: 'F',
+    label: 'Ondalık (F)',
+    items: ['F0.0', 'F1.0', 'F2.5', 'F10.000', 'F16.000', 'F100.0'].map((v) => ({
+      value: v,
+    })),
+  };
+
   switch (role) {
     case 'bit_contact':
       return [xGroup, yGroup, mContactGroup, tGroup, cGroup];
@@ -229,6 +266,8 @@ function buildQuickPickGroups(role: AddressRole, model: PlcModelId): QuickPickGr
       return [dGroup, kWordGroup, tGroup, cGroup];
     case 'word_dest':
       return [dDestGroup];
+    case 'float_source':
+      return [fConstGroup, dGroup];
     default:
       return [xGroup, yGroup, mCoilGroup];
   }
@@ -327,6 +366,7 @@ function getInitialFields(
   let primaryInput = 'X0';
   let secondaryInput = 'K50';
   let tertiaryInput = 'D10';
+  let quaternaryInput = 'M0';
   let commentKey = '';
 
   if (element.kind === 'CONTACT') {
@@ -373,6 +413,27 @@ function getInitialFields(
     secondaryInput = element.source2;
     tertiaryInput = element.destination;
     commentKey = element.destination;
+  } else if (element.kind === 'SQR') {
+    appCmdKind = 'SQR';
+    primaryInput = element.source;
+    secondaryInput = element.destination;
+    commentKey = element.destination;
+  } else if (element.kind === 'FLOAT_MOV') {
+    appCmdKind = 'DMOVR';
+    primaryInput = element.source;
+    secondaryInput = element.destination;
+    commentKey = element.destination;
+  } else if (element.kind === 'FLOAT_MATH') {
+    appCmdKind = element.operator;
+    primaryInput = element.source1;
+    secondaryInput = element.source2;
+    tertiaryInput = element.destination;
+    commentKey = element.destination;
+  } else if (element.kind === 'FLOAT_UNARY') {
+    appCmdKind = element.operator;
+    primaryInput = element.source;
+    secondaryInput = element.destination;
+    commentKey = element.destination;
   } else if (element.kind === 'INCDEC') {
     appCmdKind = element.operator;
     primaryInput = element.target;
@@ -380,6 +441,17 @@ function getInitialFields(
   } else if (element.kind === 'TRD') {
     appCmdKind = 'TRD';
     primaryInput = element.destination;
+    commentKey = element.destination;
+  } else if (element.kind === 'TWR') {
+    appCmdKind = element.pulsed ? 'TWRP' : 'TWR';
+    primaryInput = element.source;
+    commentKey = element.source;
+  } else if (element.kind === 'TZCP') {
+    appCmdKind = 'TZCP';
+    primaryInput = element.start1;
+    secondaryInput = element.start2;
+    tertiaryInput = element.current;
+    quaternaryInput = element.destination;
     commentKey = element.destination;
   } else if (element.kind === 'COMPARE') {
     compareOp = element.operator;
@@ -400,12 +472,17 @@ function getInitialFields(
     primaryInput,
     secondaryInput,
     tertiaryInput,
+    quaternaryInput,
     initialComment,
   };
 }
 
 function isMathAppCmd(cmd: AppCmdKind): cmd is MathOperator {
   return cmd === 'ADD' || cmd === 'SUB' || cmd === 'MUL' || cmd === 'DIV';
+}
+
+function isFloatMathAppCmd(cmd: AppCmdKind): cmd is FloatMathOperator {
+  return cmd === 'DADDR' || cmd === 'DSUBR' || cmd === 'DMULR' || cmd === 'DDIVR';
 }
 
 function isIncDecAppCmd(cmd: AppCmdKind): cmd is IncDecOperator {
@@ -435,9 +512,10 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   const [primaryInput, setPrimaryInput] = useState(initial.primaryInput);
   const [secondaryInput, setSecondaryInput] = useState(initial.secondaryInput);
   const [tertiaryInput, setTertiaryInput] = useState(initial.tertiaryInput);
-  const [activeField, setActiveField] = useState<'primary' | 'secondary' | 'tertiary'>(
-    'primary'
-  );
+  const [quaternaryInput, setQuaternaryInput] = useState(initial.quaternaryInput);
+  const [activeField, setActiveField] = useState<
+    'primary' | 'secondary' | 'tertiary' | 'quaternary'
+  >('primary');
   const [comment, setComment] = useState(initial.initialComment);
   const [commentTouched, setCommentTouched] = useState(false);
 
@@ -462,8 +540,14 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     element.kind === 'ZRST' ||
     element.kind === 'CMP' ||
     element.kind === 'MATH' ||
+    element.kind === 'SQR' ||
+    element.kind === 'FLOAT_MOV' ||
+    element.kind === 'FLOAT_MATH' ||
+    element.kind === 'FLOAT_UNARY' ||
     element.kind === 'INCDEC' ||
-    element.kind === 'TRD';
+    element.kind === 'TRD' ||
+    element.kind === 'TWR' ||
+    element.kind === 'TZCP';
   const isCompare = element.kind === 'COMPARE';
   const isContact = element.kind === 'CONTACT';
   const isCoil = element.kind === 'COIL';
@@ -475,14 +559,25 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     }
   };
 
+  const usesSecondaryAsCommentTarget =
+    isAppCmd &&
+    (appCmdKind === 'MOV' ||
+      appCmdKind === 'SQR' ||
+      appCmdKind === 'DMOVR' ||
+      appCmdKind === 'DESQR' ||
+      appCmdKind === 'FLT');
+  const usesTertiaryAsCommentTarget =
+    isAppCmd &&
+    (appCmdKind === 'CMP' || isMathAppCmd(appCmdKind) || isFloatMathAppCmd(appCmdKind));
+  const usesQuaternaryAsCommentTarget = isAppCmd && appCmdKind === 'TZCP';
+
   const handlePrimaryChange = (nextVal: string) => {
     const upper = nextVal.toUpperCase();
     setPrimaryInput(upper);
     if (
-      !(
-        isAppCmd &&
-        (appCmdKind === 'MOV' || appCmdKind === 'CMP' || isMathAppCmd(appCmdKind))
-      )
+      !usesSecondaryAsCommentTarget &&
+      !usesTertiaryAsCommentTarget &&
+      !usesQuaternaryAsCommentTarget
     ) {
       syncCommentForAddress(upper);
     }
@@ -491,7 +586,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   const handleSecondaryChange = (nextVal: string) => {
     const upper = nextVal.toUpperCase();
     setSecondaryInput(upper);
-    if (isAppCmd && appCmdKind === 'MOV') {
+    if (usesSecondaryAsCommentTarget) {
       syncCommentForAddress(upper);
     }
   };
@@ -499,18 +594,28 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   const handleTertiaryChange = (nextVal: string) => {
     const upper = nextVal.toUpperCase();
     setTertiaryInput(upper);
-    if (isAppCmd && (appCmdKind === 'CMP' || isMathAppCmd(appCmdKind))) {
+    if (usesTertiaryAsCommentTarget) {
       syncCommentForAddress(upper);
     }
   };
 
-  // Determine validation roles for primary, secondary, and tertiary inputs
+  const handleQuaternaryChange = (nextVal: string) => {
+    const upper = nextVal.toUpperCase();
+    setQuaternaryInput(upper);
+    if (usesQuaternaryAsCommentTarget) {
+      syncCommentForAddress(upper);
+    }
+  };
+
+  // Determine validation roles for primary, secondary, tertiary, and quaternary inputs
   let primaryRole: AddressRole = 'bit_contact';
   let secondaryRole: AddressRole | null = null;
   let tertiaryRole: AddressRole | null = null;
+  let quaternaryRole: AddressRole | null = null;
   let primaryLabel = 'Aygıt Adresi';
   let secondaryLabel = '';
   let tertiaryLabel = '';
+  let quaternaryLabel = '';
   let helperHint = '';
 
   if (isContact) {
@@ -543,6 +648,38 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       secondaryRole = 'word_dest';
       primaryLabel = 'Kaynak (S: K / D / T / C)';
       secondaryLabel = `Hedef (D0 – D${spec.registerRange.max})`;
+    } else if (appCmdKind === 'SQR') {
+      primaryRole = 'word_source';
+      secondaryRole = 'word_dest';
+      primaryLabel = 'Kaynak (S: K / D / T / C)';
+      secondaryLabel = `Karekök Hedefi (D0 – D${spec.registerRange.max})`;
+      helperHint = 'SQR: S değerinin tam sayı karekökünü hesaplayıp D registerına yazar (√S).';
+    } else if (appCmdKind === 'DMOVR') {
+      primaryRole = 'float_source';
+      secondaryRole = 'word_dest';
+      primaryLabel = 'Float Kaynak (S: F10.0 / D)';
+      secondaryLabel = '32-Bit Hedef (D, D+1)';
+      helperHint = 'DMOVR: 32-bit IEEE-754 kayan noktalı sabiti (F) veya çift registerı (D, D+1) taşır.';
+    } else if (appCmdKind === 'DESQR') {
+      primaryRole = 'float_source';
+      secondaryRole = 'word_dest';
+      primaryLabel = 'Float Kaynak (S: F / D, D+1)';
+      secondaryLabel = '32-Bit Sonuç (D, D+1)';
+      helperHint = 'DESQR: 32-bit kayan noktalı karekök (√S) sonucunu (D, D+1) çiftine yazar.';
+    } else if (appCmdKind === 'FLT') {
+      primaryRole = 'word_source';
+      secondaryRole = 'word_dest';
+      primaryLabel = 'Tam Sayı Kaynak (S: K / D)';
+      secondaryLabel = '32-Bit Float Hedef (D, D+1)';
+      helperHint = 'FLT: 16-bit işaretli tam sayıyı 32-bit kayan noktalı sayıya (IEEE-754) dönüştürür.';
+    } else if (isFloatMathAppCmd(appCmdKind)) {
+      primaryRole = 'float_source';
+      secondaryRole = 'float_source';
+      tertiaryRole = 'word_dest';
+      primaryLabel = '1. Float Terim (S1: F / D)';
+      secondaryLabel = '2. Float Terim (S2: F / D)';
+      tertiaryLabel = '32-Bit Sonuç (D, D+1)';
+      helperHint = `${appCmdKind}: 32-bit IEEE-754 kayan noktalı işlem yapar ve sonucu (D, D+1) register çiftine yazar.`;
     } else if (appCmdKind === 'ALT') {
       primaryRole = 'bit_coil';
       primaryLabel = 'Flip-Flop Hedef Biti (Y / M)';
@@ -583,6 +720,20 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       primaryRole = 'word_dest';
       primaryLabel = 'RTC Hedef Başlangıç (D)';
       helperHint = 'RTC (D1319..D1313) verisini 7 ardışık registera kopyalar (Yıl→D, Saat→D+4, Dk→D+5, Sn→D+6).';
+    } else if (appCmdKind === 'TWR' || appCmdKind === 'TWRP') {
+      primaryRole = 'word_dest';
+      primaryLabel = 'RTC Kaynak Tablo Başlangıcı (S)';
+      helperHint = `${appCmdKind}: S..S+6 (Yıl, Hafta Günü, Ay, Gün, Saat, Dk, Sn) tablosunu dahili RTC (D1313–D1319) saatine yazar.`;
+    } else if (appCmdKind === 'TZCP') {
+      primaryRole = 'word_dest';
+      secondaryRole = 'word_dest';
+      tertiaryRole = 'word_dest';
+      quaternaryRole = 'bit_coil';
+      primaryLabel = 'Alt Zaman (S1: D..D+2)';
+      secondaryLabel = 'Üst Zaman (S2: D..D+2)';
+      tertiaryLabel = 'Mevcut Zaman (S: D..D+2)';
+      quaternaryLabel = 'Çıkış Başlangıç (D: M / Y)';
+      helperHint = 'TZCP: 3-kelimelik (Saat, Dk, Sn) zamanları kıyaslar: S<S1 → D, S1≤S≤S2 → D+1, S>S2 → D+2.';
     }
   }
 
@@ -593,6 +744,9 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   const tertiaryValidation = tertiaryRole
     ? validateAddress(tertiaryInput, tertiaryRole, model)
     : { valid: true };
+  const quaternaryValidation = quaternaryRole
+    ? validateAddress(quaternaryInput, quaternaryRole, model)
+    : { valid: true };
 
   const zrstValidation =
     isAppCmd && appCmdKind === 'ZRST'
@@ -600,8 +754,10 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       : { valid: true };
 
   const rtcSupportError =
-    isAppCmd && appCmdKind === 'TRD' && !spec.hasRtc
-      ? `TRD komutu yalnızca dahili RTC bulunan DVP-SX2 modelinde desteklenir (seçili model: ${model}).`
+    isAppCmd &&
+    (appCmdKind === 'TRD' || appCmdKind === 'TWR' || appCmdKind === 'TWRP') &&
+    !spec.hasRtc
+      ? `${appCmdKind} komutu yalnızca dahili RTC bulunan DVP-SX2 modelinde desteklenir (seçili model: ${model}).`
       : null;
 
   const isFormValid =
@@ -609,6 +765,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     primaryValidation.valid &&
     secondaryValidation.valid &&
     tertiaryValidation.valid &&
+    quaternaryValidation.valid &&
     zrstValidation.valid;
 
   const firstError = rtcSupportError
@@ -619,9 +776,11 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         ? secondaryValidation.error
         : !tertiaryValidation.valid && 'error' in tertiaryValidation
           ? tertiaryValidation.error
-          : !zrstValidation.valid && 'error' in zrstValidation
-            ? zrstValidation.error
-            : null;
+          : !quaternaryValidation.valid && 'error' in quaternaryValidation
+            ? quaternaryValidation.error
+            : !zrstValidation.valid && 'error' in zrstValidation
+              ? zrstValidation.error
+              : null;
 
   const handleSwitchAppCmd = (nextKind: AppCmdKind) => {
     setAppCmdKind(nextKind);
@@ -639,6 +798,27 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       setPrimaryInput('K100');
       setSecondaryInput('D0');
       setComment(deviceComments['D0'] ?? '');
+    } else if (nextKind === 'SQR') {
+      setPrimaryInput('D0');
+      setSecondaryInput('D2');
+      setComment(deviceComments['D2'] ?? '');
+    } else if (nextKind === 'DMOVR') {
+      setPrimaryInput('F10.000');
+      setSecondaryInput('D10');
+      setComment(deviceComments['D10'] ?? '');
+    } else if (nextKind === 'DESQR') {
+      setPrimaryInput('D30');
+      setSecondaryInput('D40');
+      setComment(deviceComments['D40'] ?? '');
+    } else if (nextKind === 'FLT') {
+      setPrimaryInput('D0');
+      setSecondaryInput('D10');
+      setComment(deviceComments['D10'] ?? '');
+    } else if (isFloatMathAppCmd(nextKind)) {
+      setPrimaryInput('D10');
+      setSecondaryInput('D20');
+      setTertiaryInput('D30');
+      setComment(deviceComments['D30'] ?? '');
     } else if (nextKind === 'ALT') {
       setPrimaryInput('Y0');
       setComment(deviceComments['Y0'] ?? '');
@@ -659,9 +839,15 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     } else if (isIncDecAppCmd(nextKind)) {
       setPrimaryInput('D0');
       setComment(deviceComments['D0'] ?? '');
-    } else if (nextKind === 'TRD') {
+    } else if (nextKind === 'TRD' || nextKind === 'TWR' || nextKind === 'TWRP') {
       setPrimaryInput('D20');
       setComment(deviceComments['D20'] ?? '');
+    } else if (nextKind === 'TZCP') {
+      setPrimaryInput('D10');
+      setSecondaryInput('D20');
+      setTertiaryInput('D0');
+      setQuaternaryInput('M0');
+      setComment(deviceComments['M0'] ?? '');
     }
   };
 
@@ -678,6 +864,10 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       tertiaryRole && 'parsed' in tertiaryValidation && tertiaryValidation.parsed
         ? tertiaryValidation.parsed.normalized
         : tertiaryInput.trim().toUpperCase();
+    const qNorm =
+      quaternaryRole && 'parsed' in quaternaryValidation && quaternaryValidation.parsed
+        ? quaternaryValidation.parsed.normalized
+        : quaternaryInput.trim().toUpperCase();
     const cleanComment = comment.trim() || undefined;
 
     if (isContact) {
@@ -709,6 +899,39 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       } else if (appCmdKind === 'MOV') {
         onSave(
           { kind: 'MOV', source: pNorm, destination: sNorm, comment: cleanComment },
+          comment
+        );
+      } else if (appCmdKind === 'SQR') {
+        onSave(
+          { kind: 'SQR', source: pNorm, destination: sNorm, comment: cleanComment },
+          comment
+        );
+      } else if (appCmdKind === 'DMOVR') {
+        onSave(
+          { kind: 'FLOAT_MOV', source: pNorm, destination: sNorm, comment: cleanComment },
+          comment
+        );
+      } else if (appCmdKind === 'DESQR' || appCmdKind === 'FLT') {
+        onSave(
+          {
+            kind: 'FLOAT_UNARY',
+            operator: appCmdKind,
+            source: pNorm,
+            destination: sNorm,
+            comment: cleanComment,
+          },
+          comment
+        );
+      } else if (isFloatMathAppCmd(appCmdKind)) {
+        onSave(
+          {
+            kind: 'FLOAT_MATH',
+            operator: appCmdKind,
+            source1: pNorm,
+            source2: sNorm,
+            destination: tNorm,
+            comment: cleanComment,
+          },
           comment
         );
       } else if (appCmdKind === 'ALT') {
@@ -745,27 +968,53 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         );
       } else if (appCmdKind === 'TRD') {
         onSave({ kind: 'TRD', destination: pNorm, comment: cleanComment }, comment);
+      } else if (appCmdKind === 'TWR' || appCmdKind === 'TWRP') {
+        onSave(
+          { kind: 'TWR', pulsed: appCmdKind === 'TWRP', source: pNorm, comment: cleanComment },
+          comment
+        );
+      } else if (appCmdKind === 'TZCP') {
+        onSave(
+          {
+            kind: 'TZCP',
+            start1: pNorm,
+            start2: sNorm,
+            current: tNorm,
+            destination: qNorm,
+            comment: cleanComment,
+          },
+          comment
+        );
       }
     }
   };
 
   const activeQuickRole =
-    activeField === 'tertiary' && tertiaryRole
-      ? tertiaryRole
-      : activeField === 'secondary' && secondaryRole
-        ? secondaryRole
-        : primaryRole;
+    activeField === 'quaternary' && quaternaryRole
+      ? quaternaryRole
+      : activeField === 'tertiary' && tertiaryRole
+        ? tertiaryRole
+        : activeField === 'secondary' && secondaryRole
+          ? secondaryRole
+          : primaryRole;
 
   const activeQuickValue =
-    activeField === 'tertiary' && tertiaryRole
-      ? tertiaryInput
-      : activeField === 'secondary' && secondaryRole
-        ? secondaryInput
-        : primaryInput;
+    activeField === 'quaternary' && quaternaryRole
+      ? quaternaryInput
+      : activeField === 'tertiary' && tertiaryRole
+        ? tertiaryInput
+        : activeField === 'secondary' && secondaryRole
+          ? secondaryInput
+          : primaryInput;
 
   const handleQuickPick = (val: string) => {
-    if (activeField === 'tertiary' && tertiaryRole) {
+    if (activeField === 'quaternary' && quaternaryRole) {
+      handleQuaternaryChange(val);
+    } else if (activeField === 'tertiary' && tertiaryRole) {
       handleTertiaryChange(val);
+      if (quaternaryRole) {
+        setActiveField('quaternary');
+      }
     } else if (activeField === 'secondary' && secondaryRole) {
       handleSecondaryChange(val);
       if (tertiaryRole) {
@@ -787,11 +1036,13 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         ? 'Karşılaştırma Kontağı Düzenle'
         : `Uygulama Komutu Düzenle (${appCmdKind})`;
 
-  const gridColsClass = tertiaryRole
-    ? 'grid grid-cols-1 sm:grid-cols-3 gap-2.5'
-    : secondaryRole
-      ? 'grid grid-cols-1 sm:grid-cols-2 gap-2.5'
-      : '';
+  const gridColsClass = quaternaryRole
+    ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5'
+    : tertiaryRole
+      ? 'grid grid-cols-1 sm:grid-cols-3 gap-2.5'
+      : secondaryRole
+        ? 'grid grid-cols-1 sm:grid-cols-2 gap-2.5'
+        : '';
 
   return (
     <div
@@ -871,9 +1122,15 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-[#64748B]">
                     {grp.label}
                   </div>
-                  <div className="grid grid-cols-5 gap-1">
+                  <div
+                    className={`grid gap-1 ${
+                      grp.items.length === 5 ? 'grid-cols-5' : 'grid-cols-4'
+                    }`}
+                  >
                     {grp.items.map((cmd) => {
-                      const isDisabled = cmd.id === 'TRD' && !spec.hasRtc;
+                      const requiresRtc =
+                        cmd.id === 'TRD' || cmd.id === 'TWR' || cmd.id === 'TWRP';
+                      const isDisabled = requiresRtc && !spec.hasRtc;
                       return (
                         <button
                           key={cmd.id}
@@ -882,7 +1139,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                           data-testid={`app-cmd-${cmd.id}`}
                           title={
                             isDisabled
-                              ? `TRD yalnızca dahili RTC bulunan DVP-SX2 modelinde desteklenir (${model} desteklemez)`
+                              ? `${cmd.short} yalnızca dahili RTC bulunan DVP-SX2 modelinde desteklenir (${model} desteklemez)`
                               : cmd.short
                           }
                           onClick={() => handleSwitchAppCmd(cmd.id)}
@@ -940,7 +1197,12 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
               <input
                 id="cell-primary-input"
                 type="text"
-                autoFocus
+                autoFocus={shouldAutoFocusInput()}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="characters"
+                spellCheck={false}
+                enterKeyHint="done"
                 value={primaryInput}
                 onFocus={() => setActiveField('primary')}
                 onChange={(e) => handlePrimaryChange(e.target.value)}
@@ -965,6 +1227,11 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                 <input
                   id="cell-secondary-input"
                   type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  enterKeyHint="done"
                   value={secondaryInput}
                   onFocus={() => setActiveField('secondary')}
                   onChange={(e) => handleSecondaryChange(e.target.value)}
@@ -990,6 +1257,11 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                 <input
                   id="cell-tertiary-input"
                   type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  enterKeyHint="done"
                   value={tertiaryInput}
                   onFocus={() => setActiveField('tertiary')}
                   onChange={(e) => handleTertiaryChange(e.target.value)}
@@ -997,6 +1269,36 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                     !tertiaryValidation.valid
                       ? 'border-[#DC2626] focus:ring-[#DC2626]/30 bg-[#FEF2F2]/40'
                       : activeField === 'tertiary'
+                        ? 'border-[#0B4EA2] focus:ring-[#0B4EA2]/25 bg-white'
+                        : 'border-[#B8C2D1] focus:ring-[#0B4EA2]/25 bg-white'
+                  }`}
+                />
+              </div>
+            )}
+
+            {quaternaryRole && (
+              <div>
+                <label
+                  htmlFor="cell-quaternary-input"
+                  className="block text-[11px] font-medium text-[#475569] mb-1"
+                >
+                  {quaternaryLabel}
+                </label>
+                <input
+                  id="cell-quaternary-input"
+                  type="text"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  value={quaternaryInput}
+                  onFocus={() => setActiveField('quaternary')}
+                  onChange={(e) => handleQuaternaryChange(e.target.value)}
+                  className={`w-full h-10 px-3 rounded border font-mono text-sm font-semibold text-[#0F172A] focus:outline-none focus:ring-2 ${
+                    !quaternaryValidation.valid
+                      ? 'border-[#DC2626] focus:ring-[#DC2626]/30 bg-[#FEF2F2]/40'
+                      : activeField === 'quaternary'
                         ? 'border-[#0B4EA2] focus:ring-[#0B4EA2]/25 bg-white'
                         : 'border-[#B8C2D1] focus:ring-[#0B4EA2]/25 bg-white'
                   }`}
@@ -1058,7 +1360,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="px-4 py-3 bg-[#F4F6F9] border-t border-[#CBD2DC] flex items-center justify-between gap-2">
+        <div className="px-4 py-3 wpl-safe-bottom bg-[#F4F6F9] border-t border-[#CBD2DC] flex items-center justify-between gap-2">
           <div>
             {!isNewPlacement && (
               <button

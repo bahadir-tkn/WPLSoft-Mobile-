@@ -74,8 +74,15 @@ function getPrimaryAddress(el: CellElement): string | null {
     case 'MOV':
     case 'CMP':
     case 'MATH':
+    case 'SQR':
+    case 'FLOAT_MOV':
+    case 'FLOAT_MATH':
+    case 'FLOAT_UNARY':
     case 'TRD':
+    case 'TZCP':
       return el.destination;
+    case 'TWR':
+      return el.source;
     case 'ALT':
     case 'INCDEC':
       return el.target;
@@ -180,22 +187,55 @@ export function useLadderEditor(
     });
   }, []);
 
-  // Auto-save confirmed working program draft to localStorage & notify user if storage fails
+  const latestProgramRef = useRef(program);
+  const editModalOpenRef = useRef(editModal !== null);
+  latestProgramRef.current = program;
+  editModalOpenRef.current = editModal !== null;
+
+  const flushDraftSave = useCallback(
+    (targetProgram: LadderProgram) => {
+      const res = saveDraftToStorage(targetProgram);
+      if (!res.ok) {
+        const msg = res.error ?? 'Otomatik taslak kaydedilemedi.';
+        setStorageError(msg);
+        if (lastNotifiedStorageErrRef.current !== msg) {
+          lastNotifiedStorageErrRef.current = msg;
+          onNotify(msg);
+        }
+      } else if (lastNotifiedStorageErrRef.current !== null) {
+        setStorageError(null);
+        lastNotifiedStorageErrRef.current = null;
+      }
+    },
+    [onNotify]
+  );
+
+  // Debounced auto-save (300ms) avoids blocking mobile UI thread on rapid edits
   useEffect(() => {
     if (editModal !== null) return;
-    const res = saveDraftToStorage(program);
-    if (!res.ok) {
-      const msg = res.error ?? 'Otomatik taslak kaydedilemedi.';
-      setStorageError(msg);
-      if (lastNotifiedStorageErrRef.current !== msg) {
-        lastNotifiedStorageErrRef.current = msg;
-        onNotify(msg);
+    const tid = window.setTimeout(() => {
+      flushDraftSave(program);
+    }, 300);
+    return () => window.clearTimeout(tid);
+  }, [editModal, flushDraftSave, program]);
+
+  // Synchronous flush on iOS Safari pagehide / mobile app switch so unsaved drafts are never lost
+  useEffect(() => {
+    const flushNow = () => {
+      if (!editModalOpenRef.current) {
+        saveDraftToStorage(latestProgramRef.current);
       }
-    } else if (storageError !== null) {
-      setStorageError(null);
-      lastNotifiedStorageErrRef.current = null;
-    }
-  }, [editModal, onNotify, program, storageError]);
+    };
+    const handleVisibility = () => {
+      if (document.hidden) flushNow();
+    };
+    window.addEventListener('pagehide', flushNow);
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      window.removeEventListener('pagehide', flushNow);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, []);
 
   const compileResult = useMemo(() => compileLadderToIl(program), [program]);
 
@@ -253,7 +293,7 @@ export function useLadderEditor(
 
   const setModel = useCallback(
     (nextModel: PlcModelId) => {
-      if (isLocked) return;
+      if (isLocked || program.model === nextModel) return;
       const nextSpec = PLC_MODELS[nextModel];
       commitProgramUpdate((current) =>
         current.model === nextModel ? current : { ...current, model: nextModel }
@@ -262,7 +302,7 @@ export function useLadderEditor(
         `PLC modeli ${nextSpec.label} olarak güncellendi (${nextSpec.onboardInputCount} DI / ${nextSpec.onboardOutputCount} DO).`
       );
     },
-    [commitProgramUpdate, isLocked, onNotify]
+    [commitProgramUpdate, isLocked, onNotify, program.model]
   );
 
   const applyElementToProgram = useCallback(
@@ -270,7 +310,8 @@ export function useLadderEditor(
       baseProgram: LadderProgram,
       pos: CursorPosition,
       element: CellElement,
-      comment?: string
+      comment?: string,
+      updatedAt?: string
     ): LadderProgram => {
       const rungs = cloneRungs(baseProgram.rungs);
       const rung = rungs[pos.rungIndex];
@@ -315,7 +356,7 @@ export function useLadderEditor(
         ...baseProgram,
         rungs,
         deviceComments: nextComments,
-        updatedAt: new Date().toISOString(),
+        updatedAt: updatedAt ?? baseProgram.updatedAt,
       };
     },
     []
@@ -330,7 +371,8 @@ export function useLadderEditor(
         base,
         editModal.position,
         updatedElement,
-        comment
+        comment,
+        timestamp
       );
 
       setHistory((prev) =>
@@ -391,8 +433,24 @@ export function useLadderEditor(
 
   const handleDeleteFromModal = useCallback(() => {
     if (!editModal) return;
+    if (editModal.isNewPlacement && editModal.previousProgram) {
+      replacePresentWithoutHistory(editModal.previousProgram);
+      setEditModal(null);
+      onNotify('Eleman silindi.');
+      return;
+    }
+
     const base = editModal.previousProgram ?? program;
     const timestamp = new Date().toISOString();
+    const targetCell =
+      base.rungs[editModal.position.rungIndex]?.rows[editModal.position.rowIndex]?.[
+        editModal.position.colIndex
+      ];
+    if (!targetCell || targetCell.element.kind === 'EMPTY') {
+      setEditModal(null);
+      return;
+    }
+
     const rungs = cloneRungs(base.rungs);
     const rung = rungs[editModal.position.rungIndex];
     if (
@@ -414,7 +472,7 @@ export function useLadderEditor(
     );
     setEditModal(null);
     onNotify('Eleman silindi.');
-  }, [editModal, onNotify, program]);
+  }, [editModal, onNotify, program, replacePresentWithoutHistory]);
 
   const toggleHLineAt = useCallback(
     (pos: CursorPosition) => {

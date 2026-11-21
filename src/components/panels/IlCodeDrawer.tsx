@@ -6,9 +6,11 @@ import {
   ClipboardCopy,
   Download,
   FileCode2,
+  X,
   XCircle,
 } from 'lucide-react';
 import type { CompileResult, IlOpcode } from '../../types/plc';
+import { copyTextToClipboard } from '../../core/clipboard';
 
 interface IlCodeDrawerProps {
   compileResult: CompileResult;
@@ -17,6 +19,7 @@ interface IlCodeDrawerProps {
   onSelectRung: (rungIndex: number) => void;
   onSelectDiagnosticCell?: (rungIndex: number, rowIndex: number, colIndex: number) => void;
   onOpenProjectIo?: () => void;
+  onClose?: () => void;
   onNotify: (msg: string) => void;
 }
 
@@ -36,11 +39,22 @@ function opcodeColorClass(opcode: IlOpcode): string {
     opcode === 'SUB' ||
     opcode === 'MUL' ||
     opcode === 'DIV' ||
+    opcode === 'SQR' ||
+    opcode === 'DMOVR' ||
+    opcode === 'DADDR' ||
+    opcode === 'DSUBR' ||
+    opcode === 'DMULR' ||
+    opcode === 'DDIVR' ||
+    opcode === 'DESQR' ||
+    opcode === 'FLT' ||
     opcode === 'INC' ||
     opcode === 'INCP' ||
     opcode === 'DEC' ||
     opcode === 'DECP' ||
-    opcode === 'TRD'
+    opcode === 'TRD' ||
+    opcode === 'TWR' ||
+    opcode === 'TWRP' ||
+    opcode === 'TZCP'
   ) {
     return 'text-[#0F766E] font-bold';
   }
@@ -54,6 +68,7 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
   onSelectRung,
   onSelectDiagnosticCell,
   onOpenProjectIo,
+  onClose,
   onNotify,
 }) => {
   const [copied, setCopied] = useState(false);
@@ -66,14 +81,14 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
   ).length;
 
   const handleCopyRawIl = async () => {
-    try {
-      await navigator.clipboard.writeText(compileResult.rawIlText);
+    const ok = await copyTextToClipboard(compileResult.rawIlText);
+    if (ok) {
       setCopied(true);
       onNotify(
         'Saf Delta IL kodu panoya kopyalandı (satır numarasız, PC WPLSoft Ctrl+V uyumlu).'
       );
       window.setTimeout(() => setCopied(false), 1800);
-    } catch {
+    } else {
       onNotify('Panoya erişilemedi; IL metnini manuel seçerek kopyalayabilirsiniz.');
     }
   };
@@ -124,6 +139,17 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
               className="h-7 w-7 rounded border border-[#B8C2D1] bg-white hover:bg-[#EDF4FC] hover:border-[#0B4EA2] disabled:opacity-35 disabled:pointer-events-none text-[#0B4EA2] flex items-center justify-center shrink-0 cursor-pointer"
             >
               <Download className="w-3.5 h-3.5" aria-hidden="true" />
+            </button>
+          )}
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="IL panelini kapat"
+              title="IL panelini kapat"
+              className="h-7 w-7 rounded border border-[#B8C2D1] bg-white hover:bg-[#EDF2F8] text-[#475569] flex items-center justify-center shrink-0 cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           )}
         </div>

@@ -225,6 +225,14 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
     element: { kind: 'MOV', source: 'K100', destination: 'D0' },
   },
   {
+    id: 'm-dmovr',
+    category: 'data',
+    opcode: 'DMOVR',
+    label: '32-Bit Float Taşı',
+    hint: 'DMOVR F10.0 D10',
+    element: { kind: 'FLOAT_MOV', source: 'F10.000', destination: 'D10' },
+  },
+  {
     id: 'm-trd',
     category: 'data',
     opcode: 'TRD',
@@ -232,6 +240,23 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
     hint: 'TRD D20 (SX2)',
     element: { kind: 'TRD', destination: 'D20' },
     requiresRtc: true,
+  },
+  {
+    id: 'm-twr',
+    category: 'data',
+    opcode: 'TWR',
+    label: 'RTC Saat Yaz',
+    hint: 'TWR D20 (SX2)',
+    element: { kind: 'TWR', source: 'D20', pulsed: false },
+    requiresRtc: true,
+  },
+  {
+    id: 'm-tzcp',
+    category: 'data',
+    opcode: 'TZCP',
+    label: 'Zaman Aralığı Karş.',
+    hint: 'TZCP D10 D20 D0 M0',
+    element: { kind: 'TZCP', start1: 'D10', start2: 'D20', current: 'D0', destination: 'M0' },
   },
 
   // Matematik
@@ -266,6 +291,30 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
     label: 'Bölme (÷)',
     hint: 'DIV D0 K5 D2',
     element: { kind: 'MATH', operator: 'DIV', source1: 'D0', source2: 'K5', destination: 'D2' },
+  },
+  {
+    id: 'm-sqr',
+    category: 'math',
+    opcode: 'SQR',
+    label: 'Karekök (Tam Sayı)',
+    hint: 'SQR D0 D2',
+    element: { kind: 'SQR', source: 'D0', destination: 'D2' },
+  },
+  {
+    id: 'm-dmulr',
+    category: 'math',
+    opcode: 'DMULR',
+    label: 'Float Çarpma (32b)',
+    hint: 'DMULR D10 D20 D30',
+    element: { kind: 'FLOAT_MATH', operator: 'DMULR', source1: 'D10', source2: 'D20', destination: 'D30' },
+  },
+  {
+    id: 'm-desqr',
+    category: 'math',
+    opcode: 'DESQR',
+    label: 'Float Karekök (32b)',
+    hint: 'DESQR D30 D40',
+    element: { kind: 'FLOAT_UNARY', operator: 'DESQR', source: 'D30', destination: 'D40' },
   },
   {
     id: 'm-incp',
@@ -320,20 +369,38 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
 ];
 
 interface MobileCommandPaletteProps {
+  visible: boolean;
+  compactHeight?: boolean;
+  activeTool: FunctionToolId;
   model: PlcModelId;
   recentCommands: RecentCommandEntry[];
+  isSelectedEditable: boolean;
+  showQuickCmd: boolean;
+  zoomDensity: 'compact' | 'normal' | 'large';
   onSelectTool: (toolId: FunctionToolId) => void;
   onPlaceElement: (
     element: CellElement,
     meta: { id: string; label: string; opcode: string }
   ) => void;
+  onEditSelectedCell: () => void;
+  onToggleQuickCmd: () => void;
+  onCycleZoom: () => void;
 }
 
 export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
+  visible,
+  compactHeight = false,
+  activeTool,
   model,
   recentCommands,
+  isSelectedEditable,
+  showQuickCmd,
+  zoomDensity,
   onSelectTool,
   onPlaceElement,
+  onEditSelectedCell,
+  onToggleQuickCmd,
+  onCycleZoom,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState<CommandCategoryId>('contacts');
@@ -365,6 +432,8 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
     return COMMAND_ITEMS.filter((item) => item.category === activeCategory);
   }, [activeCategory, searchQuery]);
 
+  if (!visible) return null;
+
   const handlePickItem = (item: MobileCommandItem) => {
     if (item.requiresRtc && !modelSpec.hasRtc) return;
     if (item.toolId) {
@@ -392,16 +461,24 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
     setIsOpen(false);
   };
 
+  const btnH = compactHeight ? 'h-7' : 'h-8';
+  const zoomLabel =
+    zoomDensity === 'compact' ? '75%' : zoomDensity === 'large' ? '125%' : '100%';
+
   return (
-    <div className="md:hidden shrink-0 bg-[#EEF2F7] border-b border-[#BFC7D5]">
-      {/* Compact Trigger Row with Quick Common Buttons */}
-      <div className="px-2 py-1.5 flex items-center justify-between gap-1.5">
+    <div className="relative shrink-0 bg-[#EEF2F7] border-b border-[#CBD2DC] z-20">
+      {/* Single-Row Unified Touch Bar (Portrait & Phone Landscape) */}
+      <div
+        className={`px-2 ${
+          compactHeight ? 'py-1' : 'py-1.5'
+        } flex items-center justify-between gap-1.5`}
+      >
         <button
           type="button"
           data-testid="mobile-command-menu-toggle"
           aria-expanded={isOpen}
           onClick={() => setIsOpen((v) => !v)}
-          className={`h-9 px-2.5 rounded border text-xs font-bold flex items-center gap-1.5 shrink-0 cursor-pointer transition-colors ${
+          className={`${btnH} px-2 rounded border text-xs font-bold flex items-center gap-1 shrink-0 cursor-pointer transition-colors ${
             isOpen
               ? 'bg-[#0B4EA2] border-[#0B4EA2] text-white'
               : 'bg-white border-[#0B4EA2] text-[#0B4EA2]'
@@ -416,8 +493,18 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
           )}
         </button>
 
-        {/* Fast one-tap strip for the 4 most-used contacts/coils/branches on phone */}
-        <div className="flex items-center gap-1 overflow-x-auto wpl-no-scrollbar">
+        {/* Scrollable Quick Strip */}
+        <div className="flex-1 flex items-center gap-1 overflow-x-auto wpl-no-scrollbar min-w-0">
+          {isSelectedEditable && (
+            <button
+              type="button"
+              data-testid="compact-edit-cell-btn"
+              onClick={onEditSelectedCell}
+              className={`${btnH} px-2 rounded border border-[#0B4EA2] bg-[#EEF4FC] text-[#0B4EA2] text-[11px] font-bold shrink-0 cursor-pointer whitespace-nowrap`}
+            >
+              Düzenle
+            </button>
+          )}
           {(
             [
               { toolId: 'F1', text: 'NO' },
@@ -426,30 +513,69 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
               { toolId: 'F6', text: 'TMR' },
               { toolId: 'F9', text: 'Hat' },
               { toolId: 'F10', text: 'Paralel' },
+              { toolId: 'F11', text: '+Satır' },
               { toolId: 'F12', text: 'Sil' },
             ] as const
-          ).map((btn) => (
-            <button
-              key={btn.toolId}
-              type="button"
-              onClick={() => onSelectTool(btn.toolId)}
-              className={`h-9 px-2.5 rounded border font-mono text-[11px] font-bold shrink-0 cursor-pointer ${
-                btn.toolId === 'F12'
-                  ? 'border-[#FECACA] bg-white text-[#B91C1C] active:bg-[#FEF2F2]'
-                  : 'border-[#C5CDD9] bg-white text-[#0F172A] active:bg-[#EEF4FC]'
-              }`}
-            >
-              {btn.text}
-            </button>
-          ))}
+          ).map((btn) => {
+            const isActive = activeTool === btn.toolId;
+            return (
+              <button
+                key={btn.toolId}
+                type="button"
+                aria-pressed={isActive}
+                onClick={() => onSelectTool(btn.toolId)}
+                className={`${btnH} px-2 rounded border font-mono text-[11px] font-bold shrink-0 cursor-pointer whitespace-nowrap transition-colors ${
+                  btn.toolId === 'F12'
+                    ? isActive
+                      ? 'border-[#DC2626] bg-[#DC2626] text-white'
+                      : 'border-[#FECACA] bg-white text-[#B91C1C]'
+                    : isActive
+                      ? 'border-[#0B4EA2] bg-[#0B4EA2] text-white'
+                      : 'border-[#CBD2DC] bg-white text-[#0F172A]'
+                }`}
+              >
+                {btn.text}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Right Compact Utilities: Quick Command Toggle + Zoom Cycle */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            data-testid="toggle-quick-cmd-btn"
+            aria-pressed={showQuickCmd}
+            aria-label="Hızlı komut satırını aç veya kapat"
+            title="Hızlı Komut Satırı (LD X0, OUT Y0...)"
+            onClick={onToggleQuickCmd}
+            className={`${btnH} px-2 rounded border font-mono text-[11px] font-bold shrink-0 cursor-pointer transition-colors ${
+              showQuickCmd
+                ? 'border-[#0B4EA2] bg-[#0B4EA2] text-white'
+                : 'border-[#CBD2DC] bg-white text-[#334155]'
+            }`}
+          >
+            &gt;_
+          </button>
+
+          <button
+            type="button"
+            data-testid="compact-zoom-btn"
+            aria-label={`Izgara yakınlaştırma: ${zoomLabel}`}
+            title="Yakınlaştırma oranını değiştir (75% / 100% / 125%)"
+            onClick={onCycleZoom}
+            className={`${btnH} px-2 rounded border border-[#CBD2DC] bg-white font-mono text-[11px] font-bold text-[#0B4EA2] shrink-0 cursor-pointer`}
+          >
+            {zoomLabel}
+          </button>
         </div>
       </div>
 
-      {/* Expandable Categorized Command Drawer */}
+      {/* Overlay Categorized Command Drawer (never crushes Ladder diagram height) */}
       {isOpen && (
         <div
           data-testid="mobile-command-drawer"
-          className="border-t border-[#CBD2DC] bg-white px-2.5 py-2.5 space-y-2.5 max-h-[55dvh] overflow-y-auto wpl-scrollbar shadow-md"
+          className="absolute left-0 right-0 top-full z-30 border-b border-[#BFC7D5] bg-white px-2.5 py-2.5 space-y-2.5 max-h-[65dvh] overflow-y-auto wpl-scrollbar shadow-xl"
         >
           {/* Search Input */}
           <div className="relative">

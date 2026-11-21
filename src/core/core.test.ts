@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import type { LadderProgram } from '../types/plc';
 import { createBlankProgram, createEmptyRow } from './gridFactory';
 import { compileLadderToIl } from './ilCompiler';
 import { LADDER_COIL_COLUMN } from './plcModels';
@@ -425,6 +426,7 @@ test('Simulator: CNT counts strictly on 0->1 rising edge and RST C0 holds 0 with
     20
   );
   assert.equal(state.counters['C0']?.currentValue, 0);
+  
   assert.equal(state.counters['C0']?.done, false);
 });
 
@@ -1167,6 +1169,7 @@ test('Phase 6 Template — INC/DEC Adjustable Timer (Örnek 7.8): M1002 defaults
       'LDP X2',
       'INC D1',
       'LDP X3',
+      'AND> D1 K1',
       'DEC D1',
       'LD X1',
       'TMR T1 D1',
@@ -1203,6 +1206,13 @@ test('Phase 6 Template — INC/DEC Adjustable Timer (Örnek 7.8): M1002 defaults
   state = executeScanCycle(program, state, 100);
   assert.equal(state.timers['T1']?.currentValue, 49);
   assert.equal(state.outputs['Y1'], true);
+
+  // Repeated X3 presses clamp D1 at minimum 1 (0.1s) via AND> D1 K1 guard
+  for (let i = 0; i < 55; i += 1) {
+    state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X3: true } }, 20);
+    state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X3: false } }, 20);
+  }
+  assert.equal(state.registers['D1'], 1);
 });
 
 test('Phase 6 Template — DVP-SX2 Analog AD0 Temperature Control (Örnek 8.1): D1115/D200 init, LM35 DIV K2 scaling, 30/60/90°C setpoints, and X0 E-Stop', () => {
@@ -2271,6 +2281,356 @@ test('Strengthened JSON import validation catches corrupted branchDown, isEnd, v
     assert.equal(res.program?.model, 'DVP-14SS2');
     assert.equal(res.program?.columns, 9);
   }
+});
+
+test('Audit 3: Deterministic history without timestamp uses existing updatedAt (zero Date() non-determinism)', () => {
+  const base = createBlankProgram('DVP-SX2', 'Pure_History', 1);
+  base.updatedAt = '2026-01-01T00:00:00.000Z';
+  const h0 = createInitialHistory(base);
+
+  const h1 = commitHistory(h0, (cur) => ({ ...cur, projectName: 'Updated_A' }));
+  assert.equal(h1.present.updatedAt, '2026-01-01T00:00:00.000Z');
+
+  const modified = { ...base, projectName: 'Updated_B' };
+  const h2 = commitHistoryFromSnapshot(h1, base, modified);
+  assert.equal(h2.present.updatedAt, '2026-01-01T00:00:00.000Z');
+});
+
+test('Audit 3: JSON import enforces MAX_PROJECT_JSON_BYTES by UTF-8 byte length on Turkish multi-byte text', () => {
+  const base = createBlankProgram('DVP-SX2', 'Turkce_Boyut_Testi', 1);
+  const templateJson = serializeProgramJson(base);
+  const charCount = 1_100_000; // 1.1M chars < 2MB char limit, yet ~2.2MB UTF-8 bytes > MAX_PROJECT_JSON_BYTES
+  const multiByteObj = JSON.parse(templateJson) as LadderProgram;
+  multiByteObj.deviceComments = { X0: 'ğ'.repeat(charCount) };
+  const payload = JSON.stringify(multiByteObj);
+
+  assert.ok(payload.length < MAX_PROJECT_JSON_BYTES, 'UTF-16 char length should be under 2M');
+  assert.ok(
+    new TextEncoder().encode(payload).length > MAX_PROJECT_JSON_BYTES,
+    'UTF-8 byte length should exceed 2 MB'
+  );
+
+  const rejected = parseProgramJson(payload);
+  assert.equal(rejected.success, false);
+  assert.ok(rejected.error && rejected.error.includes('bayt'));
+});
+
+test('Audit 3: Nested MPS / MRD / MPP parses cleanly and round-trips Ladder <-> IL', () => {
+  const nestedIl = [
+    'LD M0',
+    'AND M14',
+    'MPS',
+    'SET Y1',
+    'MRD',
+    'TMR T1 K20',
+    'MPP',
+    'AND T1',
+    'MPS',
+    'RST Y1',
+    'MRD',
+    'CNT C0 K4',
+    'MPP',
+    'AND C0',
+    'SET M15',
+    'END',
+  ].join('\n');
+
+  const parsed = parseIlToLadder(nestedIl, 'DVP-SX2', 'Nested_MPS_Test');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const compiled = compileLadderToIl(parsed.program!);
+  assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+  assert.equal(compiled.rawIlText, nestedIl);
+
+  // Also test parent MRD after a completed nested MPS...MPP branch
+  const parentMrdIl = [
+    'LD X0',
+    'MPS',
+    'AND X1',
+    'MPS',
+    'OUT Y0',
+    'MPP',
+    'OUT Y1',
+    'MRD',
+    'OUT Y2',
+    'MPP',
+    'OUT Y3',
+    'END',
+  ].join('\n');
+  const parsedParent = parseIlToLadder(parentMrdIl, 'DVP-SX2', 'Parent_MRD_Nested');
+  assert.equal(parsedParent.success, true, JSON.stringify(parsedParent.errors));
+  const recompiled = compileLadderToIl(parsedParent.program!);
+  assert.equal(recompiled.hasErrors, false, JSON.stringify(recompiled.diagnostics));
+  // Compiler canonicalizes equal-prefix outputs cleanly and round-trips identically
+  const reParsedParent = parseIlToLadder(recompiled.rawIlText, 'DVP-SX2', 'Parent_MRD_Nested_2');
+  assert.equal(reParsedParent.success, true, JSON.stringify(reParsedParent.errors));
+  assert.equal(compileLadderToIl(reParsedParent.program!).rawIlText, recompiled.rawIlText);
+});
+
+test('DENEY 1-2 (PLC Temel Komutlar ve TMR Komutu): Y1 20s -> Y2 10s -> Y3 until X1 stop', () => {
+  const deney12Il = [
+    'LD X0',
+    'MPS',
+    'ANI T0',
+    'OUT Y1',
+    'MPP',
+    'TMR T0 K200',
+    'LD T0',
+    'MPS',
+    'ANI T1',
+    'OUT Y2',
+    'MPP',
+    'TMR T1 K100',
+    'LD T1',
+    'ANI X1',
+    'OUT Y3',
+    'END',
+  ].join('\n');
+
+  const parsed = parseIlToLadder(deney12Il, 'DVP-SX2', 'Deney_1_2');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const program = parsed.program!;
+  const compiled = compileLadderToIl(program);
+  assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+
+  let state = createInitialSimState({ X0: true, X1: false });
+  // Step 10s: Y1 active
+  state = executeScanCycle(program, state, 10000);
+  assert.equal(state.outputs['Y1'], true);
+  assert.equal(state.outputs['Y2'], false);
+  assert.equal(state.outputs['Y3'], false);
+  assert.equal(state.timers['T0']?.currentValue, 100);
+
+  // Step 10s more in 5s steps so T0 finishes at 20s; next scan updates ANI T0 -> Y1 OFF and starts T1
+  state = executeScanCycle(program, state, 5000);
+  state = executeScanCycle(program, state, 5000);
+  assert.equal(state.timers['T0']?.done, true);
+  state = executeScanCycle(program, state, 20);
+  assert.equal(state.outputs['Y1'], false);
+  assert.equal(state.outputs['Y2'], true);
+  assert.equal(state.outputs['Y3'], false);
+
+  // Step 5s more -> T1 hits 10s; next 20ms scan updates ANI T1 -> Y2 off and turns Y3 active
+  state = executeScanCycle(program, state, 5000);
+  assert.equal(state.timers['T1']?.done, true);
+  state = executeScanCycle(program, state, 20);
+  assert.equal(state.outputs['Y2'], false);
+  assert.equal(state.outputs['Y3'], true);
+
+  state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X1: true } }, 20);
+  assert.equal(state.outputs['Y3'], false);
+});
+
+test('DENEY 3 (PLC ile Sayıcı Uygulaması): 45 pulses on X0 drive Y0 via CNT C1 K45 and X1 resets', () => {
+  const deney3Il = [
+    'LD X0',
+    'CNT C1 K45',
+    'LD C1',
+    'OUT Y0',
+    'LD X1',
+    'RST C1',
+    'END',
+  ].join('\n');
+
+  const parsed = parseIlToLadder(deney3Il, 'DVP-SX2', 'Deney_3_Sayici');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const program = parsed.program!;
+  const compiled = compileLadderToIl(program);
+  assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+
+  let state = createInitialSimState();
+  for (let p = 0; p < 44; p += 1) {
+    state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: true } }, 20);
+    state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: false } }, 20);
+    assert.equal(state.outputs['Y0'], false, `Pulse ${p + 1} must not trigger Y0 yet`);
+  }
+  state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: true } }, 20);
+  assert.equal(state.counters['C1']?.currentValue, 45);
+  assert.equal(state.counters['C1']?.done, true);
+  assert.equal(state.outputs['Y0'], true);
+
+  // Press X1 (Rung 2 RST C1 runs after Rung 1 OUT Y0, so Y0 turns OFF on next scan)
+  state = executeScanCycle(
+    program,
+    { ...state, inputs: { ...state.inputs, X0: false, X1: true } },
+    20
+  );
+  assert.equal(state.counters['C1']?.currentValue, 0);
+  state = executeScanCycle(program, state, 20);
+  assert.equal(state.outputs['Y0'], false);
+});
+
+test('DENEY 4 (PLC ile Çamaşır Makinesi Uygulaması): Full 8-rung washing cycle with nested MPS, CNT C0 K4 + AND C0, and ZRST Y0 Y5', () => {
+  const deney4Il = [
+    'LD X0',
+    'SET M0',
+    'LD M0',
+    'ANI M10',
+    'MPS',
+    'SET Y2',
+    'MPP',
+    'AND X1',
+    'MPS',
+    'RST Y2',
+    'MRD',
+    'SET M10',
+    'MPP',
+    'SET M11',
+    'LD M0',
+    'AND M11',
+    'MPS',
+    'SET Y5',
+    'MPP',
+    'AND X2',
+    'MPS',
+    'RST Y5',
+    'MRD',
+    'RST M11',
+    'MPP',
+    'SET M12',
+    'LD M0',
+    'AND M12',
+    'MPS',
+    'SET Y3',
+    'MRD',
+    'TMR T3 K50',
+    'MPP',
+    'AND T3',
+    'MPS',
+    'RST Y3',
+    'MRD',
+    'RST M12',
+    'MPP',
+    'SET M13',
+    'LD M0',
+    'AND M13',
+    'MPS',
+    'SET Y0',
+    'MRD',
+    'TMR T0 K20',
+    'MPP',
+    'AND T0',
+    'MPS',
+    'RST Y0',
+    'MRD',
+    'RST M13',
+    'MPP',
+    'SET M14',
+    'LD M0',
+    'AND M14',
+    'MPS',
+    'SET Y1',
+    'MRD',
+    'TMR T1 K20',
+    'MPP',
+    'AND T1',
+    'MPS',
+    'RST Y1',
+    'MRD',
+    'RST M14',
+    'MRD',
+    'SET M13',
+    'MRD',
+    'CNT C0 K4',
+    'MPP',
+    'AND C0',
+    'MPS',
+    'RST M13',
+    'MPP',
+    'SET M15',
+    'LD M0',
+    'AND M15',
+    'MPS',
+    'SET Y4',
+    'MRD',
+    'TMR T2 K100',
+    'MPP',
+    'AND T2',
+    'MPS',
+    'RST Y4',
+    'MRD',
+    'RST M15',
+    'MPP',
+    'SET M16',
+    'LD M0',
+    'AND M16',
+    'MPS',
+    'ZRST Y0 Y5',
+    'MPP',
+    'RST M0',
+    'END',
+  ].join('\n');
+
+  const parsed = parseIlToLadder(deney4Il, 'DVP-SX2', 'Deney_4_Camasir_Makinesi');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const program = parsed.program!;
+  assert.equal(parsed.parsedRungCount, 8);
+
+  const compiled = compileLadderToIl(program);
+  assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
+
+  const reparsed = parseIlToLadder(compiled.rawIlText, 'DVP-SX2', 'Deney_4_RoundTrip');
+  assert.equal(reparsed.success, true, JSON.stringify(reparsed.errors));
+
+  let state = createInitialSimState({ X0: true });
+  state = executeScanCycle(program, state, 20);
+  assert.equal(state.relays['M0'], true);
+  assert.equal(state.outputs['Y2'], true);
+
+  state = executeScanCycle(
+    program,
+    { ...state, inputs: { ...state.inputs, X0: false, X1: true } },
+    20
+  );
+  assert.equal(state.outputs['Y2'], false);
+  assert.equal(state.outputs['Y5'], true);
+
+  state = executeScanCycle(
+    program,
+    { ...state, inputs: { ...state.inputs, X1: false, X2: true } },
+    20
+  );
+  assert.equal(state.outputs['Y5'], false);
+  assert.equal(state.outputs['Y3'], true);
+
+  const stepMs = (ms: number) => {
+    for (let elapsed = 0; elapsed < ms; elapsed += 20) {
+      state = executeScanCycle(program, state, 20);
+    }
+  };
+
+  stepMs(4960);
+  state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X2: false } }, 20);
+  assert.equal(state.outputs['Y3'], false);
+  assert.equal(state.outputs['Y0'], true);
+
+  // Run 4 right/left drum cycles in 20ms PLC scan increments so each 2s timer stage is cleanly observed
+  for (let cycle = 1; cycle <= 4; cycle += 1) {
+    stepMs(1000);
+    assert.equal(state.outputs['Y0'], true, `Cycle ${cycle}: Y0 should be active at 1s`);
+    stepMs(1000);
+    assert.equal(state.outputs['Y0'], false, `Cycle ${cycle}: Y0 should stop at 2s`);
+    assert.equal(state.outputs['Y1'], true, `Cycle ${cycle}: Y1 should start at 2s`);
+
+    stepMs(1000);
+    assert.equal(state.outputs['Y1'], true, `Cycle ${cycle}: Y1 should remain active at 1s`);
+    stepMs(1000);
+    assert.equal(state.outputs['Y1'], false, `Cycle ${cycle}: Y1 should stop at 2s`);
+    assert.equal(state.counters['C0']?.currentValue, cycle);
+  }
+
+  assert.equal(state.counters['C0']?.done, true);
+  assert.equal(state.relays['M13'], false);
+  assert.equal(state.relays['M15'], true);
+  assert.equal(state.outputs['Y4'], true);
+
+  stepMs(10020);
+  assert.equal(state.outputs['Y0'], false);
+  assert.equal(state.outputs['Y1'], false);
+  assert.equal(state.outputs['Y2'], false);
+  assert.equal(state.outputs['Y3'], false);
+  assert.equal(state.outputs['Y4'], false);
+  assert.equal(state.outputs['Y5'], false);
+  assert.equal(state.relays['M0'], false);
 });
 
 

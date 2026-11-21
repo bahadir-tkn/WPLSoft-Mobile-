@@ -408,10 +408,14 @@ function buildAdjustableTimerProgram(model: PlcModelId): LadderProgram {
     branchDown: false,
   };
 
-  // Rung 2: LDP X3 -> DEC D1 (Yükselen kenar korumalı -0.1 sn azaltma)
+  // Rung 2: LDP X3 AND (D1 > K1) -> DEC D1 (0.1sn alt sınır korumalı azaltma)
   const r2 = createEmptyRow();
   r2[0] = { element: { kind: 'CONTACT', contactType: 'RISING', address: 'X3' }, branchDown: false };
-  bridgeRowToCoil(r2, 1);
+  r2[1] = {
+    element: { kind: 'COMPARE', operator: '>', operandA: 'D1', operandB: 'K1' },
+    branchDown: false,
+  };
+  bridgeRowToCoil(r2, 2);
   r2[LADDER_COIL_COLUMN] = {
     element: { kind: 'INCDEC', operator: 'DEC', target: 'D1' },
     branchDown: false,
@@ -676,10 +680,10 @@ export const INDUSTRIAL_TEMPLATES: IndustrialTemplateMeta[] = [
     category: 'textbook',
     referenceTag: 'Örnek 7.8',
     title: '6. INC/DEC ile Ayarlanabilir Zamanlayıcı (Örnek 7.8 — Düzeltilmiş)',
-    subtitle: 'LDP yükselen kenar korumalı 0.1sn adımlı süre ayarı ve dinamik TMR T1 D1',
+    subtitle: 'LDP yükselen kenar korumalı 0.1sn adımlı süre ayarı (min K1) ve dinamik TMR T1 D1',
     difficulty: 'Orta',
     description:
-      'M1002 ilk tarama palsiyle D1 varsayılan 50 (5.0sn) olarak yüklenir. LDP X2 -> INC D1 her basışta süreyi +0.1sn artırır, LDP X3 -> DEC D1 her basışta -0.1sn azaltır (buton basılı tutulsa bile yükselen kenar korumasıyla taşma yapmaz). X1 aktif olduğunda T1, D1 değerine ulaşınca Y1 motorunu sürer.',
+      'M1002 ilk tarama palsiyle D1 varsayılan 50 (5.0sn) olarak yüklenir. LDP X2 -> INC D1 her basışta süreyi +0.1sn artırır, LDP X3 AND (D1 > K1) -> DEC D1 ile süre güvenli alt sınır 0.1sn (K1) altına düşmeden -0.1sn azaltılır. X1 aktif olduğunda T1, D1 değerine ulaşınca Y1 motorunu sürer.',
     ioSummary: [
       { address: 'M1002 -> D1', role: 'Varsayılan 5.0 sn (K50)' },
       { address: 'X2 / X3 (LDP)', role: '+0.1sn INC / -0.1sn DEC' },

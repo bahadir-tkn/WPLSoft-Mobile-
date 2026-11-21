@@ -123,6 +123,34 @@ export const SPECIAL_RELAYS: Record<string, SpecialRelayInfo> = {
     readOnly: true,
     category: 'flag',
   },
+  M1016: {
+    address: 'M1016',
+    name: 'RTC Yıl / Hafta Günü Modu',
+    description: 'ON iken RTC gün/yıl yazımını ve gösterimini aktifleştirir (yazılabilir özel röle).',
+    readOnly: false,
+    category: 'system',
+  },
+  M1017: {
+    address: 'M1017',
+    name: 'RTC ±30sn Ayar Bayrağı',
+    description: 'RTC saat senkronizasyonunda ±30 saniye düzeltme tetikleyicisi (yazılabilir özel röle).',
+    readOnly: false,
+    category: 'system',
+  },
+  M1067: {
+    address: 'M1067',
+    name: 'İşlem Hatası Bayrağı',
+    description: 'Sıfıra bölme, negatif karekök veya taşma gibi aritmetik işlem hatasında ON olur.',
+    readOnly: true,
+    category: 'flag',
+  },
+  M1068: {
+    address: 'M1068',
+    name: 'İşlem Hatası Kilidi',
+    description: 'Aritmetik işlem hatası oluştuğunda kilitlenen hata bayrağı (STOP->RUN ile sıfırlanır).',
+    readOnly: true,
+    category: 'flag',
+  },
 };
 
 export const SPECIAL_RELAY_ADDRESSES = new Set<string>(Object.keys(SPECIAL_RELAYS));
@@ -251,8 +279,8 @@ export const FUNCTION_TOOLBAR_ITEMS: FunctionToolDefinition[] = [
     shortcut: 'F6',
     label: 'Uygulama Komutu',
     shortLabel: 'Uygulama',
-    mnemonic: 'TMR/MOV/ADD/CMP',
-    description: 'TMR, CNT, MOV, ALT, ZRST, CMP, ADD, SUB, MUL, DIV, INC/DEC ve TRD komut blokları.',
+    mnemonic: 'TMR/MOV/FLOAT/RTC',
+    description: 'TMR, CNT, MOV, SQR, DMOVR, DADDR..DDIVR, DESQR, FLT, ALT, ZRST, CMP, ADD..DIV, INC/DEC, TRD, TWR ve TZCP komutları.',
     columnScope: 'output',
   },
   {

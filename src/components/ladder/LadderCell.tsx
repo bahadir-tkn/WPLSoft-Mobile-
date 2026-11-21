@@ -1,5 +1,5 @@
 import React from 'react';
-import type { LadderCellData } from '../../types/plc';
+import type { CursorPosition, LadderCellData } from '../../types/plc';
 
 interface LadderCellProps {
   cell: LadderCellData;
@@ -21,12 +21,12 @@ interface LadderCellProps {
   branchUpEnergized?: boolean;
   diagnosticSeverity?: 'error' | 'warning';
   zoomDensity?: 'compact' | 'normal' | 'large';
-  onSelect: () => void;
-  onActivate?: () => void;
-  onOnlineClick?: () => void;
+  onSelect: (pos: CursorPosition) => void;
+  onActivate?: (pos: CursorPosition) => void;
+  onOnlineClick?: (pos: CursorPosition) => void;
 }
 
-export const LadderCell: React.FC<LadderCellProps> = ({
+const LadderCellComponent: React.FC<LadderCellProps> = ({
   cell,
   rungIndex,
   rowIndex,
@@ -90,10 +90,22 @@ export const LadderCell: React.FC<LadderCellProps> = ({
         return `CMP ${element.source1} ${element.source2} ${element.destination}`;
       case 'MATH':
         return `${element.operator} ${element.source1} ${element.source2} ${element.destination}`;
+      case 'SQR':
+        return `SQR ${element.source} ${element.destination}`;
+      case 'FLOAT_MOV':
+        return `DMOVR ${element.source} ${element.destination}`;
+      case 'FLOAT_MATH':
+        return `${element.operator} ${element.source1} ${element.source2} ${element.destination}`;
+      case 'FLOAT_UNARY':
+        return `${element.operator} ${element.source} ${element.destination}`;
       case 'INCDEC':
         return `${element.operator} ${element.target}`;
       case 'TRD':
         return `TRD ${element.destination}`;
+      case 'TWR':
+        return `${element.pulsed ? 'TWRP' : 'TWR'} ${element.source}`;
+      case 'TZCP':
+        return `TZCP ${element.start1} ${element.start2} ${element.current} ${element.destination}`;
       case 'END':
         return 'END';
     }
@@ -121,10 +133,126 @@ export const LadderCell: React.FC<LadderCellProps> = ({
 
   const heightClass =
     zoomDensity === 'compact'
-      ? 'h-[62px]'
+      ? 'h-[56px]'
       : zoomDensity === 'large'
-        ? 'h-[84px]'
-        : 'h-[72px]';
+        ? 'h-[82px]'
+        : 'h-[70px]';
+
+  const isCompact = zoomDensity === 'compact';
+  const isLarge = zoomDensity === 'large';
+
+  const leftWireThickness = activeLeft ? 3 : 2;
+  const rightWireThickness = activeRightWire ? 3 : 2;
+  const coilRightWireThickness = activeRight ? 3 : 2;
+
+  const topLabelClass = `pointer-events-none absolute ${
+    isCompact ? 'top-0.5 text-[10px]' : 'top-1 text-[11px]'
+  } left-0.5 right-0.5 text-center font-mono font-bold leading-none whitespace-nowrap truncate`;
+
+  const boxHeightClass = isCompact ? 'h-[22px]' : isLarge ? 'h-[30px]' : 'h-[26px]';
+  const boxTextClass = isCompact
+    ? 'text-[9.5px]'
+    : isLarge
+      ? 'text-[11.5px]'
+      : 'text-[10.5px]';
+
+  /**
+   * Renders a full edge-to-edge horizontal wire rail centered at y = 52%
+   * with the element glyph sandwiched tightly between flex-1 left/right wires.
+   * This guarantees zero gaps between cells, HLINEs, and power rails at any width or zoom.
+   */
+  const renderWireRailRow = (
+    centerNode: React.ReactNode,
+    opts?: {
+      rightColor?: string;
+      rightThickness?: number;
+      leftColor?: string;
+      leftThickness?: number;
+      minWirePx?: number;
+    }
+  ) => {
+    const lColor = opts?.leftColor ?? leftWireColor;
+    const rColor = opts?.rightColor ?? rightWireColor;
+    const lThick = opts?.leftThickness ?? leftWireThickness;
+    const rThick = opts?.rightThickness ?? rightWireThickness;
+    const minW = opts?.minWirePx ?? 4;
+
+    return (
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-[-1px] right-[-1px] top-[52%] -translate-y-1/2 flex items-center"
+      >
+        <span
+          className="flex-1"
+          style={{
+            minWidth: `${minW}px`,
+            height: `${lThick}px`,
+            backgroundColor: lColor,
+          }}
+        />
+        {centerNode}
+        <span
+          className="flex-1"
+          style={{
+            minWidth: `${minW}px`,
+            height: `${rThick}px`,
+            backgroundColor: rColor,
+          }}
+        />
+      </div>
+    );
+  };
+
+  const renderFunctionBox = (
+    topLabel: string,
+    innerText: string,
+    options?: {
+      compactFontSize?: string;
+      fillBg?: string;
+      borderColor?: string;
+      textColor?: string;
+      leftColor?: string;
+      rightColor?: string;
+      leftThickness?: number;
+      rightThickness?: number;
+    }
+  ) => {
+    const borderCol = options?.borderColor ?? symbolColor;
+    const txtCol = options?.textColor ?? symbolColor;
+    const bgCol =
+      options?.fillBg ?? (activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC');
+
+    return (
+      <div className="relative w-full h-full">
+        {topLabel && (
+          <span className={topLabelClass} style={{ color: txtCol }}>
+            {topLabel}
+          </span>
+        )}
+        {renderWireRailRow(
+          <span
+            className={`shrink-0 ${boxHeightClass} max-w-[calc(100%-14px)] px-1.5 rounded-[2px] border-2 font-mono font-bold leading-none flex items-center justify-center truncate ${
+              options?.compactFontSize ?? boxTextClass
+            }`}
+            style={{
+              backgroundColor: bgCol,
+              borderColor: borderCol,
+              color: txtCol,
+            }}
+          >
+            <span className="truncate">{innerText}</span>
+          </span>,
+          {
+            leftColor: options?.leftColor ?? leftWireColor,
+            rightColor: options?.rightColor ?? rightWireColor,
+            leftThickness: options?.leftThickness ?? leftWireThickness,
+            rightThickness: options?.rightThickness ?? coilRightWireThickness,
+            minWirePx: 7,
+          }
+        )}
+      </div>
+    );
+  };
 
   const renderElementGraphic = () => {
     switch (element.kind) {
@@ -133,508 +261,271 @@ export const LadderCell: React.FC<LadderCellProps> = ({
 
       case 'HLINE':
         return (
-          <svg
-            viewBox="0 0 120 72"
-            className="w-full h-full"
-            preserveAspectRatio="none"
-            aria-hidden="true"
-          >
-            <line
-              x1="0"
-              y1="38"
-              x2="120"
-              y2="38"
-              stroke={rightWireColor}
-              strokeWidth={activeRight ? 3.2 : 2}
+          <div className="relative w-full h-full" aria-hidden="true">
+            <span
+              className="pointer-events-none absolute left-[-1px] right-[-1px] top-[52%] -translate-y-1/2"
+              style={{
+                height: `${activeRightWire ? 3 : 2}px`,
+                backgroundColor: rightWireColor,
+              }}
             />
-          </svg>
+          </div>
         );
 
       case 'CONTACT': {
         const isNC = element.contactType === 'NC';
         const isRising = element.contactType === 'RISING';
         const isFalling = element.contactType === 'FALLING';
+        const svgSize = isCompact
+          ? 'w-[24px] h-[22px]'
+          : isLarge
+            ? 'w-[34px] h-[30px]'
+            : 'w-[28px] h-[26px]';
+
         return (
           <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
+            <span className={topLabelClass} style={{ color: symbolColor }}>
               {element.address}
             </span>
-            <svg viewBox="0 0 120 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="44"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              {(activeRight || isContactHighlighted) && (
-                <rect
-                  x="44"
-                  y="22"
-                  width="32"
-                  height="32"
-                  rx="2"
-                  fill="rgba(0, 200, 83, 0.22)"
-                />
-              )}
-              <line x1="44" y1="22" x2="44" y2="54" stroke={symbolColor} strokeWidth="2.6" />
-              <line x1="76" y1="22" x2="76" y2="54" stroke={symbolColor} strokeWidth="2.6" />
-              {isNC && (
-                <line x1="71" y1="24" x2="49" y2="52" stroke={symbolColor} strokeWidth="2.2" />
-              )}
-              {isRising && (
-                <path
-                  d="M60 49V27M53 34l7-7 7 7"
-                  fill="none"
-                  stroke={symbolColor}
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-              {isFalling && (
-                <path
-                  d="M60 27v22M53 42l7 7 7-7"
-                  fill="none"
-                  stroke={symbolColor}
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              )}
-              <line
-                x1="76"
-                y1="38"
-                x2="120"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRightWire ? 3.2 : 2}
-              />
-            </svg>
+            {renderWireRailRow(
+              <svg
+                viewBox="0 0 34 30"
+                className={`${svgSize} shrink-0 block overflow-visible`}
+                aria-hidden="true"
+              >
+                {(activeRight || isContactHighlighted) && (
+                  <rect
+                    x="2"
+                    y="2"
+                    width="30"
+                    height="26"
+                    rx="1.5"
+                    fill="rgba(0, 200, 83, 0.22)"
+                  />
+                )}
+                <line x1="1.5" y1="2" x2="1.5" y2="28" stroke={symbolColor} strokeWidth="2.6" />
+                <line x1="32.5" y1="2" x2="32.5" y2="28" stroke={symbolColor} strokeWidth="2.6" />
+                {isNC && (
+                  <line x1="27" y1="4" x2="7" y2="26" stroke={symbolColor} strokeWidth="2.2" />
+                )}
+                {isRising && (
+                  <path
+                    d="M17 24V6M11 12l6-6 6 6"
+                    fill="none"
+                    stroke={symbolColor}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+                {isFalling && (
+                  <path
+                    d="M17 6v18M11 18l6 6 6-6"
+                    fill="none"
+                    stroke={symbolColor}
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                )}
+              </svg>,
+              {
+                leftColor: leftWireColor,
+                rightColor: rightWireColor,
+                leftThickness: leftWireThickness,
+                rightThickness: rightWireThickness,
+                minWirePx: 6,
+              }
+            )}
           </div>
         );
       }
 
       case 'COMPARE':
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              {element.operandA} {element.operator} {element.operandB}
-            </span>
-            <svg viewBox="0 0 120 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="16"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="16"
-                y="21"
-                width="88"
-                height="30"
-                rx="2"
-                fill={activeRight || isContactHighlighted ? 'rgba(0, 200, 83, 0.18)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="60"
-                y="40"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="12"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                LD{element.operator}
-              </text>
-              <line
-                x1="104"
-                y1="38"
-                x2="120"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
+        return renderFunctionBox(
+          `${element.operandA} ${element.operator} ${element.operandB}`,
+          `LD${element.operator}`,
+          {
+            fillBg: activeRight || isContactHighlighted ? 'rgba(0, 200, 83, 0.18)' : '#F8FAFC',
+            rightThickness: rightWireThickness,
+          }
         );
 
-      case 'COIL':
+      case 'COIL': {
+        const svgSize = isCompact
+          ? 'w-[50px] h-[24px]'
+          : isLarge
+            ? 'w-[68px] h-[32px]'
+            : 'w-[58px] h-[28px]';
+
         return (
           <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
+            <span className={topLabelClass} style={{ color: symbolColor }}>
               {element.address}
             </span>
-            <svg viewBox="0 0 144 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="40"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              {activeRight && (
-                <ellipse
-                  cx="72"
-                  cy="38"
-                  rx="27"
-                  ry="16"
-                  fill="rgba(0, 200, 83, 0.18)"
+            {renderWireRailRow(
+              <svg
+                viewBox="0 0 64 32"
+                className={`${svgSize} shrink-0 block overflow-visible`}
+                aria-hidden="true"
+              >
+                {activeRight && (
+                  <ellipse
+                    cx="32"
+                    cy="16"
+                    rx="27"
+                    ry="14"
+                    fill="rgba(0, 200, 83, 0.18)"
+                  />
+                )}
+                {/* Tiny anchor caps guarantee seamless sub-pixel join to left/right bus rails */}
+                <line
+                  x1="-0.5"
+                  y1="16"
+                  x2="2.5"
+                  y2="16"
+                  stroke={leftWireColor}
+                  strokeWidth={leftWireThickness}
                 />
-              )}
-              <path
-                d="M49 22C37 29 37 47 49 54"
-                fill="none"
-                stroke={symbolColor}
-                strokeWidth="2.6"
-                strokeLinecap="round"
-              />
-              <path
-                d="M95 22C107 29 107 47 95 54"
-                fill="none"
-                stroke={symbolColor}
-                strokeWidth="2.6"
-                strokeLinecap="round"
-              />
-              {element.coilType !== 'OUT' && (
-                <text
-                  x="72"
-                  y="42"
-                  textAnchor="middle"
-                  fill={symbolColor}
-                  fontSize="12"
-                  fontWeight="700"
-                  fontFamily="JetBrains Mono, monospace"
-                >
-                  {element.coilType}
-                </text>
-              )}
-              <line
-                x1="104"
-                y1="38"
-                x2="144"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
+                <line
+                  x1="61.5"
+                  y1="16"
+                  x2="64.5"
+                  y2="16"
+                  stroke={rightWireColor}
+                  strokeWidth={coilRightWireThickness}
+                />
+                <path
+                  d="M11 2Q-8 16 11 30"
+                  fill="none"
+                  stroke={symbolColor}
+                  strokeWidth="2.6"
+                  strokeLinecap="round"
+                />
+                <path
+                  d="M53 2Q72 16 53 30"
+                  fill="none"
+                  stroke={symbolColor}
+                  strokeWidth="2.6"
+                  strokeLinecap="round"
+                />
+                {element.coilType !== 'OUT' && (
+                  <text
+                    x="32"
+                    y="20"
+                    textAnchor="middle"
+                    fill={symbolColor}
+                    fontSize="12"
+                    fontWeight="700"
+                    fontFamily="JetBrains Mono, monospace"
+                  >
+                    {element.coilType}
+                  </text>
+                )}
+              </svg>,
+              {
+                leftColor: leftWireColor,
+                rightColor: rightWireColor,
+                leftThickness: leftWireThickness,
+                rightThickness: coilRightWireThickness,
+                minWirePx: 10,
+              }
+            )}
           </div>
         );
+      }
 
       case 'TMR':
       case 'CNT':
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              {element.kind} {element.address} {element.preset}
-            </span>
-            <svg viewBox="0 0 144 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="12"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="12"
-                y="20"
-                width="120"
-                height="30"
-                rx="2"
-                fill={activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="72"
-                y="39"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="11.5"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {element.address} · {element.preset}
-              </text>
-              <line
-                x1="132"
-                y1="38"
-                x2="144"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
+        return renderFunctionBox(
+          `${element.kind} ${element.address} ${element.preset}`,
+          `${element.address} · ${element.preset}`
         );
 
       case 'MOV':
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              MOV {element.source} {element.destination}
-            </span>
-            <svg viewBox="0 0 144 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="12"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="12"
-                y="20"
-                width="120"
-                height="30"
-                rx="2"
-                fill={activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="72"
-                y="39"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="11.5"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {element.source} → {element.destination}
-              </text>
-              <line
-                x1="132"
-                y1="38"
-                x2="144"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
+      case 'SQR':
+      case 'FLOAT_MOV':
+      case 'FLOAT_UNARY': {
+        const opcode =
+          element.kind === 'MOV'
+            ? 'MOV'
+            : element.kind === 'SQR'
+              ? 'SQR'
+              : element.kind === 'FLOAT_MOV'
+                ? 'DMOVR'
+                : element.operator;
+        return renderFunctionBox(
+          `${opcode} ${element.source} ${element.destination}`,
+          `${element.source} → ${element.destination}`
         );
+      }
 
       case 'ALT':
       case 'INCDEC':
-      case 'TRD': {
+      case 'TRD':
+      case 'TWR': {
         const opcode =
           element.kind === 'ALT'
             ? 'ALT'
             : element.kind === 'TRD'
               ? 'TRD'
-              : element.operator;
+              : element.kind === 'TWR'
+                ? element.pulsed
+                  ? 'TWRP'
+                  : 'TWR'
+                : element.operator;
         const targetText =
-          element.kind === 'TRD' ? element.destination : element.target;
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              {opcode} {targetText}
-            </span>
-            <svg viewBox="0 0 156 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="14"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="14"
-                y="20"
-                width="128"
-                height="30"
-                rx="2"
-                fill={activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="78"
-                y="39"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="11.5"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {opcode} · {targetText}
-              </text>
-              <line
-                x1="142"
-                y1="38"
-                x2="156"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
-        );
+          element.kind === 'TRD'
+            ? element.destination
+            : element.kind === 'TWR'
+              ? element.source
+              : element.target;
+        return renderFunctionBox(`${opcode} ${targetText}`, `${opcode} · ${targetText}`);
       }
 
       case 'ZRST':
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[11px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              ZRST {element.start} {element.end}
-            </span>
-            <svg viewBox="0 0 156 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="10"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="10"
-                y="20"
-                width="136"
-                height="30"
-                rx="2"
-                fill={activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="78"
-                y="39"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="11"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {element.start} .. {element.end}
-              </text>
-              <line
-                x1="146"
-                y1="38"
-                x2="156"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
+        return renderFunctionBox(
+          `ZRST ${element.start} ${element.end}`,
+          `${element.start} .. ${element.end}`
         );
 
       case 'CMP':
-      case 'MATH': {
-        const opcode = element.kind === 'CMP' ? 'CMP' : element.operator;
-        const innerText = `${element.source1} ${element.source2} ${element.destination}`;
-        return (
-          <div className="relative w-full h-full">
-            <span
-              className="absolute top-1 left-0 right-0 text-center text-[10.5px] font-mono font-bold leading-none px-1 whitespace-nowrap"
-              style={{ color: symbolColor }}
-            >
-              {opcode}
-            </span>
-            <svg viewBox="0 0 156 72" className="w-full h-full" aria-hidden="true">
-              <line
-                x1="0"
-                y1="38"
-                x2="8"
-                y2="38"
-                stroke={leftWireColor}
-                strokeWidth={activeLeft ? 3.2 : 2}
-              />
-              <rect
-                x="8"
-                y="20"
-                width="140"
-                height="30"
-                rx="2"
-                fill={activeRight ? 'rgba(0, 200, 83, 0.16)' : '#F8FAFC'}
-                stroke={symbolColor}
-                strokeWidth="2"
-              />
-              <text
-                x="78"
-                y="39"
-                textAnchor="middle"
-                fill={symbolColor}
-                fontSize="10.2"
-                fontWeight="700"
-                fontFamily="JetBrains Mono, monospace"
-              >
-                {innerText}
-              </text>
-              <line
-                x1="148"
-                y1="38"
-                x2="156"
-                y2="38"
-                stroke={rightWireColor}
-                strokeWidth={activeRight ? 3.2 : 2}
-              />
-            </svg>
-          </div>
-        );
+      case 'MATH':
+      case 'FLOAT_MATH':
+      case 'TZCP': {
+        const opcode =
+          element.kind === 'CMP'
+            ? 'CMP'
+            : element.kind === 'TZCP'
+              ? 'TZCP'
+              : element.operator;
+        const innerText =
+          element.kind === 'TZCP'
+            ? `${element.start1} ${element.start2} ${element.current}→${element.destination}`
+            : `${element.source1} ${element.source2} ${element.destination}`;
+        return renderFunctionBox(opcode, innerText, {
+          compactFontSize:
+            element.kind === 'TZCP'
+              ? isCompact
+                ? 'text-[8.5px]'
+                : 'text-[9.5px]'
+              : isCompact
+                ? 'text-[9px]'
+                : 'text-[10px]',
+        });
       }
 
       case 'END':
-        return (
-          <svg viewBox="0 0 144 72" className="w-full h-full" aria-hidden="true">
-            <line x1="0" y1="38" x2="24" y2="38" stroke="#1E293B" strokeWidth="2" />
-            <rect
-              x="24"
-              y="22"
-              width="96"
-              height="32"
-              rx="2"
-              fill="#EEF4FC"
-              stroke="#0B4EA2"
-              strokeWidth="2"
-            />
-            <text
-              x="72"
-              y="42"
-              textAnchor="middle"
-              fill="#0B4EA2"
-              fontSize="13"
-              fontWeight="700"
-              fontFamily="JetBrains Mono, monospace"
-            >
-              END
-            </text>
-            <line x1="120" y1="38" x2="144" y2="38" stroke="#1E293B" strokeWidth="2" />
-          </svg>
-        );
+        return renderFunctionBox('', 'END', {
+          fillBg: '#EEF4FC',
+          borderColor: '#0B4EA2',
+          textColor: '#0B4EA2',
+          leftColor: '#1E293B',
+          rightColor: '#1E293B',
+          leftThickness: 2,
+          rightThickness: 2,
+          compactFontSize: isCompact ? 'text-[11px] px-3' : 'text-xs px-4',
+        });
     }
   };
 
@@ -646,11 +537,26 @@ export const LadderCell: React.FC<LadderCellProps> = ({
     element.kind !== 'HLINE' &&
     element.kind !== 'END';
 
+  const handleClick = () => {
+    const pos: CursorPosition = { rungIndex, rowIndex, colIndex };
+    if (isOnline) {
+      if (isOnlineClickable) onOnlineClick?.(pos);
+    } else {
+      onSelect(pos);
+    }
+  };
+
+  const handleDoubleClick = () => {
+    if (!isOnline) {
+      onActivate?.({ rungIndex, rowIndex, colIndex });
+    }
+  };
+
   return (
     <button
       type="button"
-      onClick={isOnline ? (isOnlineClickable ? onOnlineClick : undefined) : onSelect}
-      onDoubleClick={isOnline ? undefined : onActivate}
+      onClick={handleClick}
+      onDoubleClick={isOnline ? undefined : handleDoubleClick}
       disabled={isEndRung}
       aria-label={cellRoleLabel}
       aria-pressed={isSelected}
@@ -714,23 +620,32 @@ export const LadderCell: React.FC<LadderCellProps> = ({
         )
       )}
 
-      {/* Vertical OR-Branch connector coming down from cell above */}
+      {/* Vertical OR-Branch connector coming down from cell above — aligned cleanly to 52% horizontal wire */}
       {branchUp && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-[-1.5px] top-[-1px] h-[55%] w-[3px] z-20"
-          style={{ backgroundColor: branchUpColor }}
+          className="pointer-events-none absolute right-[-1.5px] top-[-1px] w-[3px] z-20"
+          style={{
+            height: 'calc(52% + 2px)',
+            backgroundColor: branchUpColor,
+          }}
         />
       )}
 
-      {/* Vertical OR-Branch connector going down to cell below */}
+      {/* Vertical OR-Branch connector going down to cell below — aligned cleanly to 52% horizontal wire */}
       {branchDown && (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute right-[-1.5px] top-[51%] bottom-[-1px] w-[3px] z-20"
-          style={{ backgroundColor: branchDownColor }}
+          className="pointer-events-none absolute right-[-1.5px] bottom-[-1px] w-[3px] z-20"
+          style={{
+            top: 'calc(52% - 1.5px)',
+            backgroundColor: branchDownColor,
+          }}
         />
       )}
     </button>
   );
 };
+
+export const LadderCell = React.memo(LadderCellComponent);
+LadderCell.displayName = 'LadderCell';

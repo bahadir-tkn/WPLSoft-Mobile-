@@ -45,7 +45,7 @@ export function commitHistory(
   if (next === history.present) return history;
   const stamped: LadderProgram = {
     ...next,
-    updatedAt: updatedAt ?? next.updatedAt ?? new Date().toISOString(),
+    updatedAt: updatedAt ?? next.updatedAt ?? history.present.updatedAt,
   };
   const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
   return {
@@ -65,7 +65,7 @@ export function commitHistoryFromSnapshot(
   if (nextProgram === baseProgram) return history;
   const stamped: LadderProgram = {
     ...nextProgram,
-    updatedAt: updatedAt ?? nextProgram.updatedAt ?? new Date().toISOString(),
+    updatedAt: updatedAt ?? nextProgram.updatedAt ?? baseProgram.updatedAt,
   };
   const nextSeq = (history.lastTransition?.seq ?? 0) + 1;
   return {
@@ -110,8 +110,14 @@ export function isOutputElement(element: CellElement): boolean {
     element.kind === 'ZRST' ||
     element.kind === 'CMP' ||
     element.kind === 'MATH' ||
+    element.kind === 'SQR' ||
+    element.kind === 'FLOAT_MOV' ||
+    element.kind === 'FLOAT_MATH' ||
+    element.kind === 'FLOAT_UNARY' ||
     element.kind === 'INCDEC' ||
-    element.kind === 'TRD'
+    element.kind === 'TRD' ||
+    element.kind === 'TWR' ||
+    element.kind === 'TZCP'
   );
 }
 
@@ -129,8 +135,15 @@ export function extractPrimaryAddress(element: CellElement): string | null {
     case 'MOV':
     case 'CMP':
     case 'MATH':
+    case 'SQR':
+    case 'FLOAT_MOV':
+    case 'FLOAT_MATH':
+    case 'FLOAT_UNARY':
     case 'TRD':
+    case 'TZCP':
       return element.destination.toUpperCase();
+    case 'TWR':
+      return element.source.toUpperCase();
     case 'ALT':
     case 'INCDEC':
       return element.target.toUpperCase();
@@ -702,10 +715,22 @@ export function describeCellElement(el: CellElement): string {
       return `CMP ${el.source1} ${el.source2} ${el.destination}`;
     case 'MATH':
       return `${el.operator} ${el.source1} ${el.source2} ${el.destination}`;
+    case 'SQR':
+      return `SQR ${el.source} ${el.destination}`;
+    case 'FLOAT_MOV':
+      return `DMOVR ${el.source} ${el.destination}`;
+    case 'FLOAT_MATH':
+      return `${el.operator} ${el.source1} ${el.source2} ${el.destination}`;
+    case 'FLOAT_UNARY':
+      return `${el.operator} ${el.source} ${el.destination}`;
     case 'INCDEC':
       return `${el.operator} ${el.target}`;
     case 'TRD':
       return `TRD ${el.destination}`;
+    case 'TWR':
+      return `${el.pulsed ? 'TWRP' : 'TWR'} ${el.source}`;
+    case 'TZCP':
+      return `TZCP ${el.start1} ${el.start2} ${el.current} ${el.destination}`;
     case 'HLINE':
       return 'HLINE';
     case 'END':
@@ -724,7 +749,7 @@ function collectCellReferences(
   const addIfDevice = (addr: string | undefined, role: 'read' | 'write', opcodeLabel: string) => {
     if (!addr) return;
     const norm = addr.trim().toUpperCase();
-    if (!norm || norm.startsWith('K')) return;
+    if (!norm || norm.startsWith('K') || norm.startsWith('F')) return;
     refs.push({ address: norm, role, opcodeLabel });
   };
 
@@ -773,12 +798,43 @@ function collectCellReferences(
       addIfDevice(el.source2, 'read', el.operator);
       addIfDevice(el.destination, 'write', el.operator);
       break;
+    case 'SQR':
+      addIfDevice(el.source, 'read', 'SQR');
+      addIfDevice(el.destination, 'write', 'SQR');
+      break;
+    case 'FLOAT_MOV':
+      addIfDevice(el.source, 'read', 'DMOVR');
+      addIfDevice(el.destination, 'write', 'DMOVR');
+      break;
+    case 'FLOAT_MATH':
+      addIfDevice(el.source1, 'read', el.operator);
+      addIfDevice(el.source2, 'read', el.operator);
+      addIfDevice(el.destination, 'write', el.operator);
+      break;
+    case 'FLOAT_UNARY':
+      addIfDevice(el.source, 'read', el.operator);
+      addIfDevice(el.destination, 'write', el.operator);
+      break;
     case 'INCDEC':
       addIfDevice(el.target, 'write', el.operator);
       break;
     case 'TRD':
       addIfDevice(el.destination, 'write', 'TRD');
       break;
+    case 'TWR':
+      addIfDevice(el.source, 'read', el.pulsed ? 'TWRP' : 'TWR');
+      break;
+    case 'TZCP': {
+      addIfDevice(el.start1, 'read', 'TZCP');
+      addIfDevice(el.start2, 'read', 'TZCP');
+      addIfDevice(el.current, 'read', 'TZCP');
+      addIfDevice(el.destination, 'write', 'TZCP(<)');
+      const d1 = offsetDeviceAddress(el.destination, 1);
+      const d2 = offsetDeviceAddress(el.destination, 2);
+      if (d1) addIfDevice(d1, 'write', 'TZCP(=)');
+      if (d2) addIfDevice(d2, 'write', 'TZCP(>)');
+      break;
+    }
     default:
       break;
   }
@@ -794,6 +850,7 @@ const PREFIX_ORDER: Record<DevicePrefix, number> = {
   C: 4,
   D: 5,
   K: 6,
+  F: 7,
 };
 
 function addressSortNumber(address: string): number {

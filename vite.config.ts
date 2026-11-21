@@ -154,6 +154,23 @@ export default registerDevSW;`
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      target: ['es2020', 'safari15'],
+      cssMinify: true,
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (id.includes('node_modules/react/') || id.includes('node_modules/react-dom/')) {
+              return 'vendor-react';
+            }
+            if (id.includes('node_modules/lucide-react/')) {
+              return 'vendor-icons';
+            }
+            return undefined;
+          },
+        },
+      },
+    },
     server: {
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modify—file watching is disabled to prevent flickering during agent edits.

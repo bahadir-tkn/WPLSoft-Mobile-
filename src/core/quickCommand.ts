@@ -2,6 +2,8 @@ import type {
   CellElement,
   CompareOperator,
   ContactKind,
+  FloatMathOperator,
+  FloatUnaryOperator,
   IncDecOperator,
   MathOperator,
   PlcModelId,
@@ -27,6 +29,8 @@ export type QuickCommandParseResult = QuickCommandSuccess | QuickCommandError;
 
 const COMPARE_OPS: CompareOperator[] = ['>=', '<=', '<>', '=', '>', '<'];
 const MATH_OPS = new Set<MathOperator>(['ADD', 'SUB', 'MUL', 'DIV']);
+const FLOAT_MATH_OPS = new Set<FloatMathOperator>(['DADDR', 'DSUBR', 'DMULR', 'DDIVR']);
+const FLOAT_UNARY_OPS = new Set<FloatUnaryOperator>(['DESQR', 'FLT']);
 const INCDEC_OPS = new Set<IncDecOperator>(['INC', 'INCP', 'DEC', 'DECP']);
 
 function parseContactCommand(
@@ -378,8 +382,144 @@ export function parseQuickCommand(
     };
   }
 
+  // 12. SQR S D
+  if (opcode === 'SQR') {
+    if (args.length !== 2) {
+      return { valid: false, error: 'SQR komutu kaynak ve hedef gerektirir (Örn: SQR K16 D0).' };
+    }
+    const src = validateArg(args[0], 'word_source', model);
+    if (!src.ok) return { valid: false, error: `SQR S hatalı: ${src.error}` };
+    const dst = validateArg(args[1], 'word_dest', model);
+    if (!dst.ok) return { valid: false, error: `SQR hedef hatalı: ${dst.error}` };
+    return {
+      valid: true,
+      element: { kind: 'SQR', source: src.value, destination: dst.value },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `SQR ${src.value} ${dst.value}`,
+    };
+  }
+
+  // 13. DMOVR S D
+  if (opcode === 'DMOVR') {
+    if (args.length !== 2) {
+      return { valid: false, error: 'DMOVR komutu 2 parametre gerektirir (Örn: DMOVR F10.000 D10).' };
+    }
+    const src = validateArg(args[0], 'float_source', model);
+    if (!src.ok) return { valid: false, error: `DMOVR S hatalı: ${src.error}` };
+    const dst = validateArg(args[1], 'word_dest', model);
+    if (!dst.ok) return { valid: false, error: `DMOVR hedef hatalı: ${dst.error}` };
+    return {
+      valid: true,
+      element: { kind: 'FLOAT_MOV', source: src.value, destination: dst.value },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `DMOVR ${src.value} ${dst.value}`,
+    };
+  }
+
+  // 14. DADDR / DSUBR / DMULR / DDIVR S1 S2 D
+  if (FLOAT_MATH_OPS.has(opcode as FloatMathOperator)) {
+    if (args.length !== 3) {
+      return { valid: false, error: `${opcode} komutu 3 parametre gerektirir (Örn: ${opcode} D10 D20 D30).` };
+    }
+    const s1 = validateArg(args[0], 'float_source', model);
+    if (!s1.ok) return { valid: false, error: `${opcode} S1 hatalı: ${s1.error}` };
+    const s2 = validateArg(args[1], 'float_source', model);
+    if (!s2.ok) return { valid: false, error: `${opcode} S2 hatalı: ${s2.error}` };
+    const dst = validateArg(args[2], 'word_dest', model);
+    if (!dst.ok) return { valid: false, error: `${opcode} hedef hatalı: ${dst.error}` };
+    return {
+      valid: true,
+      element: {
+        kind: 'FLOAT_MATH',
+        operator: opcode as FloatMathOperator,
+        source1: s1.value,
+        source2: s2.value,
+        destination: dst.value,
+      },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `${opcode} ${s1.value} ${s2.value} ${dst.value}`,
+    };
+  }
+
+  // 15. DESQR / FLT S D
+  if (FLOAT_UNARY_OPS.has(opcode as FloatUnaryOperator)) {
+    if (args.length !== 2) {
+      return { valid: false, error: `${opcode} komutu 2 parametre gerektirir (Örn: ${opcode} D30 D40).` };
+    }
+    const op = opcode as FloatUnaryOperator;
+    const src = validateArg(args[0], op === 'FLT' ? 'word_source' : 'float_source', model);
+    if (!src.ok) return { valid: false, error: `${opcode} S hatalı: ${src.error}` };
+    const dst = validateArg(args[1], 'word_dest', model);
+    if (!dst.ok) return { valid: false, error: `${opcode} hedef hatalı: ${dst.error}` };
+    return {
+      valid: true,
+      element: { kind: 'FLOAT_UNARY', operator: op, source: src.value, destination: dst.value },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `${opcode} ${src.value} ${dst.value}`,
+    };
+  }
+
+  // 16. TWR / TWRP S (and TRW / TRWP alias)
+  if (opcode === 'TWR' || opcode === 'TWRP' || opcode === 'TRW' || opcode === 'TRWP') {
+    const canonicalOp = opcode === 'TWRP' || opcode === 'TRWP' ? 'TWRP' : 'TWR';
+    if (!PLC_MODELS[model].hasRtc) {
+      return {
+        valid: false,
+        error: `${PLC_MODELS[model].label} modelinde dahili RTC olmadığı için ${canonicalOp} desteklenmez (DVP-SX2 seçin).`,
+      };
+    }
+    if (args.length !== 1) {
+      return { valid: false, error: `${canonicalOp} komutu 1 başlangıç registerı gerektirir (Örn: ${canonicalOp} D10).` };
+    }
+    const src = validateArg(args[0], 'word_dest', model);
+    if (!src.ok) return { valid: false, error: `${canonicalOp} kaynak hatalı: ${src.error}` };
+    return {
+      valid: true,
+      element: {
+        kind: 'TWR',
+        pulsed: canonicalOp === 'TWRP' || undefined,
+        source: src.value,
+      },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `${canonicalOp} ${src.value}`,
+    };
+  }
+
+  // 17. TZCP S1 S2 S D
+  if (opcode === 'TZCP') {
+    if (args.length !== 4) {
+      return { valid: false, error: 'TZCP komutu 4 parametre gerektirir (Örn: TZCP D0 D10 D20 M0).' };
+    }
+    const s1 = validateArg(args[0], 'word_dest', model);
+    if (!s1.ok) return { valid: false, error: `TZCP S1 hatalı: ${s1.error}` };
+    const s2 = validateArg(args[1], 'word_dest', model);
+    if (!s2.ok) return { valid: false, error: `TZCP S2 hatalı: ${s2.error}` };
+    const cur = validateArg(args[2], 'word_dest', model);
+    if (!cur.ok) return { valid: false, error: `TZCP S hatalı: ${cur.error}` };
+    const dst = validateArg(args[3], 'bit_coil', model);
+    if (!dst.ok) return { valid: false, error: `TZCP hedef hatalı: ${dst.error}` };
+    return {
+      valid: true,
+      element: {
+        kind: 'TZCP',
+        start1: s1.value,
+        start2: s2.value,
+        current: cur.value,
+        destination: dst.value,
+      },
+      targetScope: 'output',
+      isParallelOr: false,
+      summary: `TZCP ${s1.value} ${s2.value} ${cur.value} ${dst.value}`,
+    };
+  }
+
   return {
     valid: false,
-    error: `Bilinmeyen komut "${opcode}". Örnekler: LD X0, ANI X1, OUT Y0, TMR T0 K50, MOV K10 D0.`,
+    error: `Bilinmeyen komut "${opcode}". Örnekler: LD X0, ANI X1, OUT Y0, TMR T0 K50, MOV K10 D0, DMOVR F10.0 D10.`,
   };
 }

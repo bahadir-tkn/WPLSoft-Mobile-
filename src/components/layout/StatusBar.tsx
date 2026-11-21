@@ -14,6 +14,7 @@ interface StatusBarProps {
   scanCount: number;
   scanTimeMs: number;
   storageError?: string | null;
+  hidden?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -29,70 +30,64 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   scanCount,
   scanTimeMs,
   storageError,
+  hidden = false,
 }) => {
+  if (hidden) return null;
+
   return (
-    <footer className="shrink-0 bg-[#E6E9EF] border-t border-[#BFC7D5] px-2.5 sm:px-3 py-1.5 text-[11px] text-[#334155] flex items-center justify-between gap-2 overflow-hidden">
-      <div className="flex items-center gap-2 sm:gap-3 whitespace-nowrap min-w-0">
-        <span className="font-mono font-bold text-[#0B4EA2]">{modelSpec.label}</span>
-        <span className="text-[#94A3B8]" aria-hidden="true">
-          |
-        </span>
+    <footer className="shrink-0 bg-[#ECEFF4] border-t border-[#CBD2DC] px-2.5 sm:px-3.5 py-1 text-[11px] text-[#475569] flex items-center justify-between gap-2 overflow-hidden">
+      <div className="flex items-center gap-2 sm:gap-2.5 whitespace-nowrap min-w-0">
         {isOnline ? (
           <>
             <span
-              className={`font-mono font-bold ${
+              className={`font-mono font-semibold ${
                 isRunning ? 'text-[#007A33]' : 'text-[#B91C1C]'
               }`}
-              title="Tarayıcı içi sanal PLC simülasyonu (gerçek PLC bağlantısı değildir)"
             >
-              {isRunning ? 'SİMÜLASYON · RUN' : 'SİMÜLASYON · STOP'}
+              {isRunning ? 'RUN' : 'STOP'}
             </span>
-            <span className="hidden sm:inline text-[#94A3B8]" aria-hidden="true">
-              |
+            <span className="text-[#94A3B8]" aria-hidden="true">
+              ·
             </span>
-            <span className="hidden sm:inline font-mono">
+            <span className="font-mono">
               Tarama #{scanCount} ({scanTimeMs}ms)
             </span>
           </>
         ) : (
           <>
-            <span className="font-mono sm:hidden">
-              {modelSpec.onboardInputCount}I/{modelSpec.onboardOutputCount}O
+            <span className="font-mono text-[#0F172A]">
+              Ağ {String(cursor.rungIndex).padStart(3, '0')}:{cursor.rowIndex} · Sütun {cursor.colIndex}
+            </span>
+            <span className="hidden sm:inline text-[#94A3B8]" aria-hidden="true">
+              ·
             </span>
             <span className="hidden sm:inline font-mono">
-              {modelSpec.onboardInputCount} DI (X0–X7) / {modelSpec.onboardOutputCount} DO (Y0–
-              {modelSpec.onboardOutputs[modelSpec.onboardOutputs.length - 1]})
-            </span>
-            <span className="text-[#94A3B8]" aria-hidden="true">
-              |
-            </span>
-            <span className="font-mono">
-              Ağ {String(cursor.rungIndex).padStart(3, '0')}:{cursor.rowIndex} · Sütun {cursor.colIndex}
+              {modelSpec.onboardInputCount} DI / {modelSpec.onboardOutputCount} DO
             </span>
           </>
         )}
       </div>
 
-      <div className="flex items-center gap-2 sm:gap-3 whitespace-nowrap shrink-0">
+      <div className="flex items-center gap-2 sm:gap-2.5 whitespace-nowrap shrink-0">
         {!isOnline && (
           <>
-            <span className="hidden md:inline font-mono text-[#0F172A]">
-              {activeToolDef.shortcut} ({activeToolDef.mnemonic})
+            <span className="hidden md:inline font-mono text-[#0B4EA2] font-medium">
+              {activeToolDef.shortcut} {activeToolDef.shortLabel}
             </span>
             <span className="hidden md:inline text-[#94A3B8]" aria-hidden="true">
-              |
+              ·
             </span>
           </>
         )}
         <span className="font-mono">{stepCount} Step</span>
         <span className="hidden sm:inline text-[#94A3B8]" aria-hidden="true">
-          |
+          ·
         </span>
         <span className="hidden sm:inline font-mono">{editableRungCount} Ağ</span>
         {(errorCount > 0 || warningCount > 0) && (
           <>
             <span className="text-[#94A3B8]" aria-hidden="true">
-              |
+              ·
             </span>
             <span
               className={`font-mono font-semibold ${
@@ -106,7 +101,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
         {storageError && (
           <>
             <span className="text-[#94A3B8]" aria-hidden="true">
-              |
+              ·
             </span>
             <span
               role="alert"

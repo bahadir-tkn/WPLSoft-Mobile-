@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Power, PowerOff, Sliders, X, Zap } from 'lucide-react';
 import type { SimState } from '../../types/plc';
-import { SPECIAL_RELAY_ADDRESSES } from '../../core/plcModels';
+import { SPECIAL_RELAYS } from '../../core/plcModels';
 import { getTimerTimeBaseMs } from '../../core/scanner';
+import { shouldAutoFocusInput } from '../../core/clipboard';
 
 export type OnlineTargetDescriptor =
   | {
@@ -95,7 +96,7 @@ export const OnlineControlModal: React.FC<OnlineControlModalProps> = ({
     const isInput = addr.startsWith('X');
     const isRelay = addr.startsWith('M');
     const isReadOnly =
-      (!isInput && !isRelay) || (isRelay && SPECIAL_RELAY_ADDRESSES.has(addr));
+      (!isInput && !isRelay) || (isRelay && Boolean(SPECIAL_RELAYS[addr]?.readOnly));
     const currentOn = readLiveBit(addr, simState);
 
     const handleSet = (val: boolean) => {
@@ -338,13 +339,15 @@ export const OnlineControlModal: React.FC<OnlineControlModalProps> = ({
             <input
               id="online-value-input"
               type="number"
+              inputMode="numeric"
+              enterKeyHint="done"
               data-testid="online-value-input"
               value={valueInput}
               onChange={(e) => {
                 setValueInput(e.target.value);
                 if (error) setError(null);
               }}
-              autoFocus
+              autoFocus={shouldAutoFocusInput()}
               className="w-full h-9 px-3 rounded border border-[#B8C2D1] font-mono text-sm font-bold text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0B4EA2]/30 focus:border-[#0B4EA2]"
             />
             {error && <p className="text-[11px] text-[#B91C1C] font-medium">{error}</p>}

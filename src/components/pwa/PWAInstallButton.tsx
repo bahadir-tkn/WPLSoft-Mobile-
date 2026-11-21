@@ -2,7 +2,13 @@ import React, { useState } from 'react';
 import { Download, Share, Smartphone, X } from 'lucide-react';
 import { usePWAInstall } from '../../hooks/usePWAInstall';
 
-export const PWAInstallButton: React.FC = () => {
+interface PWAInstallButtonProps {
+  compactHeight?: boolean;
+}
+
+export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
+  compactHeight = false,
+}) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [showIOSGuide, setShowIOSGuide] = useState(false);
 
@@ -10,6 +16,10 @@ export const PWAInstallButton: React.FC = () => {
   if (isInstalled) {
     return null;
   }
+
+  const sizeClass = compactHeight
+    ? 'h-7 w-7 sm:w-auto sm:px-2'
+    : 'h-7 w-7 sm:h-8 sm:w-auto sm:px-2 lg:px-2.5';
 
   // Chromium / Android / Desktop native install prompt
   if (isInstallable) {
@@ -22,7 +32,7 @@ export const PWAInstallButton: React.FC = () => {
         data-testid="pwa-install-btn"
         aria-label="Uygulamayı cihaza kur (PWA)"
         title="Uygulamayı cihaza kur (Çevrimdışı çalışır)"
-        className="h-8 px-2 sm:px-2.5 rounded border border-[#0B4EA2] bg-[#EEF4FC] hover:bg-[#DCE9FA] text-xs font-semibold text-[#0B4EA2] flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+        className={`${sizeClass} rounded border border-[#0B4EA2] bg-[#EEF4FC] hover:bg-[#DCE9FA] text-xs font-semibold text-[#0B4EA2] flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer`}
       >
         <Download className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
         <span className="hidden lg:inline">Kur</span>
@@ -30,7 +40,7 @@ export const PWAInstallButton: React.FC = () => {
     );
   }
 
-  // iOS Safari guided "Add to Home Screen" modal
+  // iOS / iPadOS Safari guided "Add to Home Screen" modal
   if (isIOS) {
     return (
       <>
@@ -40,7 +50,7 @@ export const PWAInstallButton: React.FC = () => {
           data-testid="pwa-ios-install-btn"
           aria-label="iOS ana ekrana ekleme rehberi"
           title="Ana Ekrana Ekle (iOS)"
-          className="h-8 px-2 rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-xs font-semibold text-[#0B4EA2] flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+          className={`${sizeClass} rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-xs font-semibold text-[#0B4EA2] flex items-center justify-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer`}
         >
           <Smartphone className="w-3.5 h-3.5 shrink-0" aria-hidden="true" />
           <span className="hidden sm:inline">Kur</span>
@@ -94,7 +104,7 @@ export const PWAInstallButton: React.FC = () => {
                   </li>
                 </ol>
               </div>
-              <div className="px-4 py-3 bg-[#F4F6F9] border-t border-[#CBD2DC] flex justify-end">
+              <div className="px-4 py-3 wpl-safe-bottom bg-[#F4F6F9] border-t border-[#CBD2DC] flex justify-end">
                 <button
                   type="button"
                   onClick={() => setShowIOSGuide(false)}

@@ -2,6 +2,8 @@ import type {
   CellElement,
   CompareOperator,
   ContactKind,
+  FloatMathOperator,
+  FloatUnaryOperator,
   IncDecOperator,
   LadderCellData,
   LadderProgram,
@@ -38,19 +40,22 @@ interface MeasuredNode {
   height: number;
 }
 
-interface MpsBranchDraft {
-  extraStack: LogicNode[];
-  outputs: CellElement[];
+interface MpsFrame {
+  prefix: LogicNode;
+  branchStack: LogicNode[];
+  branchHasOutput: boolean;
+  sawMpp: boolean;
 }
 
-interface ActiveMpsState {
-  prefix: LogicNode;
-  branches: MpsBranchDraft[];
-  sawMpp: boolean;
+interface MpsLeafBranch {
+  factors: LogicNode[];
+  output: CellElement;
 }
 
 const COMPARE_OPS: CompareOperator[] = ['>=', '<=', '<>', '=', '>', '<'];
 const MATH_OPS = new Set<MathOperator>(['ADD', 'SUB', 'MUL', 'DIV']);
+const FLOAT_MATH_OPS = new Set<FloatMathOperator>(['DADDR', 'DSUBR', 'DMULR', 'DDIVR']);
+const FLOAT_UNARY_OPS = new Set<FloatUnaryOperator>(['DESQR', 'FLT']);
 const INCDEC_OPS = new Set<IncDecOperator>(['INC', 'INCP', 'DEC', 'DECP']);
 
 function parseContactOpcode(
@@ -253,118 +258,195 @@ function buildRungFromAst(
   };
 }
 
-function buildMpsRungFromAst(
-  rungIndex: number,
-  mps: ActiveMpsState
-): { rung?: LadderRung; error?: string } {
-  const measuredPrefix = measureNode(mps.prefix);
-  const resolvedBranches = mps.branches
-    .filter((b) => b.outputs.length > 0)
-    .map((b) => {
-      let extra: LogicNode | null = null;
-      if (b.extraStack.length === 1) {
-        extra = b.extraStack[0];
-      } else if (b.extraStack.length > 1) {
-        extra = b.extraStack.reduce((acc, cur) => makeSeries(acc, cur));
-      }
-      const m = extra ? measureNode(extra) : { width: 0, height: 1 };
-      return {
-        extra,
-        width: m.width,
-        height: Math.max(m.height, b.outputs.length, 1),
-        outputs: b.outputs,
-      };
-    });
+function flattenSeriesNodes(node: LogicNode): LogicNode[] {
+  if (node.type === 'SERIES') {
+    const out: LogicNode[] = [];
+    for (const child of node.children) {
+      out.push(...flattenSeriesNodes(child));
+    }
+    return out;
+  }
+  return [node];
+}
 
-  if (resolvedBranches.length === 0) {
+function logicNodeSignature(node: LogicNode): string {
+  if (node.type === 'ATOM') {
+    const el = node.element;
+    switch (el.kind) {
+      case 'CONTACT':
+        return `C:${el.contactType}:${el.address}`;
+      case 'COMPARE':
+        return `K:${el.operator}:${el.operandA}:${el.operandB}`;
+      default:
+        return el.kind;
+    }
+  }
+  if (node.type === 'SERIES') {
+    return `S(${node.children.map(logicNodeSignature).join('&')})`;
+  }
+  return `P(${node.children.map(logicNodeSignature).join('|')})`;
+}
+
+type MpsLayoutNode =
+  | { kind: 'LEAF'; output: CellElement; width: 0; height: 1 }
+  | {
+      kind: 'BRANCH';
+      sharedNodes: LogicNode[];
+      segWidth: number;
+      sharedHeight: number;
+      children: MpsLayoutNode[];
+      width: number;
+      height: number;
+    };
+
+function buildMpsLayoutTree(
+  leaves: MpsLeafBranch[],
+  offset: number
+): MpsLayoutNode {
+  if (leaves.length === 1 && leaves[0].factors.length === offset) {
+    return { kind: 'LEAF', output: leaves[0].output, width: 0, height: 1 };
+  }
+
+  let commonEnd = leaves[0].factors.length;
+  for (let i = 1; i < leaves.length; i += 1) {
+    let k = offset;
+    const maxLen = Math.min(commonEnd, leaves[i].factors.length);
+    while (
+      k < maxLen &&
+      logicNodeSignature(leaves[0].factors[k]) === logicNodeSignature(leaves[i].factors[k])
+    ) {
+      k += 1;
+    }
+    commonEnd = Math.min(commonEnd, k);
+  }
+
+  const sharedNodes = leaves[0].factors.slice(offset, commonEnd);
+  let segWidth = 0;
+  let sharedHeight = 1;
+  for (const n of sharedNodes) {
+    const m = measureNode(n);
+    segWidth += m.width;
+    sharedHeight = Math.max(sharedHeight, m.height);
+  }
+
+  const children: MpsLayoutNode[] = [];
+  let idx = 0;
+  while (idx < leaves.length) {
+    if (leaves[idx].factors.length === commonEnd) {
+      children.push({ kind: 'LEAF', output: leaves[idx].output, width: 0, height: 1 });
+      idx += 1;
+      continue;
+    }
+    const sig = logicNodeSignature(leaves[idx].factors[commonEnd]);
+    let endIdx = idx + 1;
+    while (
+      endIdx < leaves.length &&
+      leaves[endIdx].factors.length > commonEnd &&
+      logicNodeSignature(leaves[endIdx].factors[commonEnd]) === sig
+    ) {
+      endIdx += 1;
+    }
+    children.push(buildMpsLayoutTree(leaves.slice(idx, endIdx), commonEnd));
+    idx = endIdx;
+  }
+
+  const childrenTotalHeight = children.reduce((sum, ch) => sum + ch.height, 0);
+  const maxChildWidth = children.reduce((max, ch) => Math.max(max, ch.width), 0);
+
+  return {
+    kind: 'BRANCH',
+    sharedNodes,
+    segWidth,
+    sharedHeight,
+    children,
+    width: segWidth + maxChildWidth,
+    height: Math.max(sharedHeight, childrenTotalHeight, 1),
+  };
+}
+
+function renderMpsLayoutTree(
+  rows: LadderCellData[][],
+  node: MpsLayoutNode,
+  startRow: number,
+  startCol: number
+): void {
+  if (node.kind === 'LEAF') {
+    for (let c = startCol; c < LADDER_COIL_COLUMN; c += 1) {
+      if (rows[startRow][c].element.kind === 'EMPTY') {
+        rows[startRow][c] = { ...rows[startRow][c], element: { kind: 'HLINE' } };
+      }
+    }
+    rows[startRow][LADDER_COIL_COLUMN] = {
+      ...rows[startRow][LADDER_COIL_COLUMN],
+      element: node.output,
+    };
+    return;
+  }
+
+  let colCursor = startCol;
+  for (const sn of node.sharedNodes) {
+    const m = measureNode(sn);
+    renderNodeIntoGrid(rows, sn, startRow, colCursor, m.width);
+    colCursor += m.width;
+  }
+
+  const nextCol = startCol + node.segWidth;
+  const splitCol = nextCol - 1;
+  let rowCursor = startRow;
+  let splitDownToRow = startRow;
+
+  for (let ci = 0; ci < node.children.length; ci += 1) {
+    const child = node.children[ci];
+    if (child.kind === 'LEAF') {
+      if (ci > 0 && node.children[ci - 1].kind === 'LEAF') {
+        rows[rowCursor - 1][LADDER_COIL_COLUMN - 1] = {
+          ...rows[rowCursor - 1][LADDER_COIL_COLUMN - 1],
+          branchDown: true,
+        };
+        rows[rowCursor][LADDER_COIL_COLUMN] = {
+          ...rows[rowCursor][LADDER_COIL_COLUMN],
+          element: child.output,
+        };
+      } else {
+        renderMpsLayoutTree(rows, child, rowCursor, nextCol);
+        splitDownToRow = rowCursor;
+      }
+    } else {
+      renderMpsLayoutTree(rows, child, rowCursor, nextCol);
+      splitDownToRow = rowCursor;
+    }
+    rowCursor += child.height;
+  }
+
+  if (splitCol >= 0) {
+    for (let r = startRow; r < splitDownToRow; r += 1) {
+      rows[r][splitCol] = { ...rows[r][splitCol], branchDown: true };
+    }
+  }
+}
+
+function buildMpsRungFromLeafBranches(
+  rungIndex: number,
+  leaves: MpsLeafBranch[]
+): { rung?: LadderRung; error?: string } {
+  if (leaves.length === 0) {
     return {
       error: `Ağ ${String(rungIndex).padStart(3, '0')} MPS/MRD/MPP bloğunda çıkış bulunamadı.`,
     };
   }
 
-  const maxBranchWidth = Math.max(0, ...resolvedBranches.map((b) => b.width));
-  if (measuredPrefix.width + maxBranchWidth > LADDER_COIL_COLUMN) {
+  const tree = buildMpsLayoutTree(leaves, 0);
+  if (tree.width > LADDER_COIL_COLUMN) {
     return {
-      error: `Ağ ${String(rungIndex).padStart(3, '0')} MPS dal genişliği (${measuredPrefix.width + maxBranchWidth}) maksimum 8 sütunu aşıyor.`,
+      error: `Ağ ${String(rungIndex).padStart(3, '0')} MPS dal genişliği (${tree.width}) maksimum 8 sütunu aşıyor.`,
     };
   }
 
-  const anyExtraLogic = resolvedBranches.some((b) => b.extra !== null);
-  const branchesTotalHeight = resolvedBranches.reduce((sum, b) => sum + b.height, 0);
-  const totalRows = Math.max(measuredPrefix.height, branchesTotalHeight, 1);
-
-  const rows: LadderCellData[][] = Array.from({ length: totalRows }, () =>
+  const rows: LadderCellData[][] = Array.from({ length: tree.height }, () =>
     createEmptyRow(LADDER_TOTAL_COLUMNS)
   );
 
-  renderNodeIntoGrid(rows, mps.prefix, 0, 0, measuredPrefix.width);
-
-  if (!anyExtraLogic) {
-    // All branches share the exact prefix without per-branch contacts: bridge row 0 to col 7 and split right before col 8
-    for (let c = measuredPrefix.width; c < LADDER_COIL_COLUMN; c += 1) {
-      if (rows[0][c].element.kind === 'EMPTY') {
-        rows[0][c] = { ...rows[0][c], element: { kind: 'HLINE' } };
-      }
-    }
-    let outRow = 0;
-    for (const branch of resolvedBranches) {
-      for (const outEl of branch.outputs) {
-        rows[outRow][LADDER_COIL_COLUMN] = {
-          ...rows[outRow][LADDER_COIL_COLUMN],
-          element: outEl,
-        };
-        if (outRow > 0) {
-          rows[outRow - 1][LADDER_COIL_COLUMN - 1] = {
-            ...rows[outRow - 1][LADDER_COIL_COLUMN - 1],
-            branchDown: true,
-          };
-        }
-        outRow += 1;
-      }
-    }
-  } else {
-    // At least one branch has per-branch contacts after MPS/MRD/MPP: split vertically at col = measuredPrefix.width - 1
-    const splitCol = measuredPrefix.width - 1;
-    let rowCursor = 0;
-    const branchStartRows: number[] = [];
-
-    for (const branch of resolvedBranches) {
-      const startRow = rowCursor;
-      branchStartRows.push(startRow);
-
-      if (branch.extra) {
-        renderNodeIntoGrid(rows, branch.extra, startRow, measuredPrefix.width, branch.width);
-      }
-      const bridgeStart = measuredPrefix.width + branch.width;
-      for (let c = bridgeStart; c < LADDER_COIL_COLUMN; c += 1) {
-        if (rows[startRow][c].element.kind === 'EMPTY') {
-          rows[startRow][c] = { ...rows[startRow][c], element: { kind: 'HLINE' } };
-        }
-      }
-
-      for (let oi = 0; oi < branch.outputs.length; oi += 1) {
-        rows[startRow + oi][LADDER_COIL_COLUMN] = {
-          ...rows[startRow + oi][LADDER_COIL_COLUMN],
-          element: branch.outputs[oi],
-        };
-        if (oi > 0) {
-          rows[startRow + oi - 1][LADDER_COIL_COLUMN - 1] = {
-            ...rows[startRow + oi - 1][LADDER_COIL_COLUMN - 1],
-            branchDown: true,
-          };
-        }
-      }
-
-      rowCursor += branch.height;
-    }
-
-    const lastBranchStart = branchStartRows[branchStartRows.length - 1];
-    if (splitCol >= 0) {
-      for (let r = 0; r < lastBranchStart; r += 1) {
-        rows[r][splitCol] = { ...rows[r][splitCol], branchDown: true };
-      }
-    }
-  }
+  renderMpsLayoutTree(rows, tree, 0, 0);
 
   const cleanRows = rows.map((row) =>
     row.map((cell) => ({
@@ -408,14 +490,20 @@ export function parseIlToLadder(
   const rungs: LadderRung[] = [];
   const stack: LogicNode[] = [];
   let pendingOutputs: CellElement[] = [];
-  let activeMps: ActiveMpsState | null = null;
+  const mpsStack: MpsFrame[] = [];
+  let leafBranches: MpsLeafBranch[] = [];
   let inOutputPhase = false;
   let sawEnd = false;
   let pendingRungComment: string | undefined;
 
-  const getCurrentBranch = (): MpsBranchDraft | null => {
-    if (!activeMps || activeMps.branches.length === 0) return null;
-    return activeMps.branches[activeMps.branches.length - 1];
+  const combineTopFrameLogic = (): LogicNode => {
+    const top = mpsStack[mpsStack.length - 1];
+    if (top.branchStack.length === 0) return top.prefix;
+    const extra =
+      top.branchStack.length === 1
+        ? top.branchStack[0]
+        : top.branchStack.reduce((acc, cur) => makeSeries(acc, cur));
+    return makeSeries(top.prefix, extra);
   };
 
   const attachPendingComment = (rung: LadderRung): LadderRung => {
@@ -426,19 +514,20 @@ export function parseIlToLadder(
   };
 
   const flushRung = (lineNumber: number, rawLine: string) => {
-    if (activeMps) {
-      if (!activeMps.sawMpp) {
+    if (mpsStack.length > 0) {
+      if (mpsStack.some((frame) => !frame.sawMpp)) {
         warnings.push(
           `Satır ${lineNumber}: MPS bloğu MPP ile kapatılmadan sonlandı; otomatik kapatıldı.`
         );
       }
-      const built = buildMpsRungFromAst(rungs.length, activeMps);
+      const built = buildMpsRungFromLeafBranches(rungs.length, leafBranches);
       if (built.error) {
         errors.push({ lineNumber, rawLine, message: built.error });
       } else if (built.rung) {
         rungs.push(attachPendingComment(built.rung));
       }
-      activeMps = null;
+      mpsStack.length = 0;
+      leafBranches = [];
       pendingOutputs = [];
       inOutputPhase = false;
       stack.length = 0;
@@ -481,10 +570,14 @@ export function parseIlToLadder(
   };
 
   const pushOutputElement = (el: CellElement) => {
-    if (activeMps) {
-      const branch = getCurrentBranch();
-      if (branch) {
-        branch.outputs.push(el);
+    if (mpsStack.length > 0) {
+      const logic = combineTopFrameLogic();
+      leafBranches.push({
+        factors: flattenSeriesNodes(logic),
+        output: el,
+      });
+      for (const frame of mpsStack) {
+        frame.branchHasOutput = true;
       }
       inOutputPhase = true;
     } else {
@@ -500,28 +593,32 @@ export function parseIlToLadder(
     lineNumber: number,
     rawLine: string
   ) => {
-    if (activeMps) {
-      const branch = getCurrentBranch()!;
-      if (mode === 'LD' && activeMps.sawMpp && branch.outputs.length > 0) {
+    if (mpsStack.length > 0) {
+      const allSawMppWithOutputs =
+        inOutputPhase &&
+        mpsStack.every((frame) => frame.sawMpp && frame.branchHasOutput);
+      if (mode === 'LD' && allSawMppWithOutputs) {
         flushRung(lineNumber, rawLine);
         stack.push(atom);
         return;
       }
+
+      const topFrame = mpsStack[mpsStack.length - 1];
       if (mode === 'LD') {
-        branch.extraStack.push(atom);
+        topFrame.branchStack.push(atom);
         return;
       }
       if (mode === 'AND') {
-        if (branch.extraStack.length === 0) {
-          branch.extraStack.push(atom);
+        if (topFrame.branchStack.length === 0) {
+          topFrame.branchStack.push(atom);
         } else {
-          const top = branch.extraStack.pop()!;
-          branch.extraStack.push(makeSeries(top, atom));
+          const prev = topFrame.branchStack.pop()!;
+          topFrame.branchStack.push(makeSeries(prev, atom));
         }
         return;
       }
       // OR inside branch
-      if (branch.extraStack.length === 0) {
+      if (topFrame.branchStack.length === 0) {
         errors.push({
           lineNumber,
           rawLine,
@@ -529,8 +626,8 @@ export function parseIlToLadder(
         });
         return;
       }
-      const top = branch.extraStack.pop()!;
-      branch.extraStack.push(makeParallel(top, atom));
+      const prev = topFrame.branchStack.pop()!;
+      topFrame.branchStack.push(makeParallel(prev, atom));
       return;
     }
 
@@ -580,7 +677,7 @@ export function parseIlToLadder(
       if (trimmedRaw.startsWith('//') || trimmedRaw.startsWith(';')) {
         const commentBody = trimmedRaw.replace(/^(\/\/|;)+\s*/, '').trim();
         if (commentBody) {
-          if (activeMps || inOutputPhase || pendingOutputs.length > 0) {
+          if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0) {
             flushRung(lineNumber, rawLine);
           }
           pendingRungComment = pendingRungComment
@@ -597,7 +694,7 @@ export function parseIlToLadder(
     const opcode = tokens[0].toUpperCase();
 
     if (opcode === 'END') {
-      if (activeMps || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
+      if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
         flushRung(lineNumber, rawLine);
       }
       sawEnd = true;
@@ -606,14 +703,16 @@ export function parseIlToLadder(
 
     if (opcode === 'NOP') continue;
 
-    // Multi-output stack instructions: MPS / MRD / MPP
+    // Multi-output stack instructions: MPS / MRD / MPP (supports nested MPS blocks)
     if (opcode === 'MPS') {
-      if (activeMps) {
-        errors.push({
-          lineNumber,
-          rawLine,
-          message: 'İç içe (nested) MPS bloğu desteklenmiyor; önce mevcut MPS bloğunu MPP ile kapatın.',
+      if (mpsStack.length > 0) {
+        mpsStack.push({
+          prefix: combineTopFrameLogic(),
+          branchStack: [],
+          branchHasOutput: false,
+          sawMpp: false,
         });
+        inOutputPhase = false;
         continue;
       }
       if (stack.length === 0) {
@@ -629,17 +728,18 @@ export function parseIlToLadder(
         const left = stack.pop()!;
         stack.push(makeSeries(left, right));
       }
-      activeMps = {
+      mpsStack.push({
         prefix: stack.pop()!,
-        branches: [{ extraStack: [], outputs: [] }],
+        branchStack: [],
+        branchHasOutput: false,
         sawMpp: false,
-      };
+      });
       inOutputPhase = false;
       continue;
     }
 
     if (opcode === 'MRD' || opcode === 'MPP') {
-      if (!activeMps) {
+      if (mpsStack.length === 0) {
         errors.push({
           lineNumber,
           rawLine,
@@ -647,7 +747,16 @@ export function parseIlToLadder(
         });
         continue;
       }
-      if (activeMps.sawMpp) {
+      while (
+        mpsStack.length > 1 &&
+        mpsStack[mpsStack.length - 1].sawMpp &&
+        mpsStack[mpsStack.length - 1].branchHasOutput
+      ) {
+        mpsStack.pop();
+        mpsStack[mpsStack.length - 1].branchHasOutput = true;
+      }
+      const topFrame = mpsStack[mpsStack.length - 1];
+      if (topFrame.sawMpp) {
         errors.push({
           lineNumber,
           rawLine,
@@ -655,9 +764,10 @@ export function parseIlToLadder(
         });
         continue;
       }
-      activeMps.branches.push({ extraStack: [], outputs: [] });
+      topFrame.branchStack = [];
+      topFrame.branchHasOutput = false;
       if (opcode === 'MPP') {
-        activeMps.sawMpp = true;
+        topFrame.sawMpp = true;
       }
       inOutputPhase = false;
       continue;
@@ -665,8 +775,9 @@ export function parseIlToLadder(
 
     // Block combinators: ORB / ANB
     if (opcode === 'ORB' || opcode === 'ANB') {
-      const targetStack = activeMps ? getCurrentBranch()!.extraStack : stack;
-      if (!activeMps && inOutputPhase) {
+      const targetStack =
+        mpsStack.length > 0 ? mpsStack[mpsStack.length - 1].branchStack : stack;
+      if (mpsStack.length === 0 && inOutputPhase) {
         errors.push({
           lineNumber,
           rawLine,
@@ -1078,6 +1189,218 @@ export function parseIlToLadder(
       continue;
     }
 
+    // Integer Square Root: SQR S D
+    if (opcode === 'SQR') {
+      const srcToken = tokens[1];
+      const dstToken = tokens[2];
+      if (!srcToken || !dstToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: 'SQR komutu için kaynak ve hedef gerekir (örn. SQR K16 D0).',
+        });
+        continue;
+      }
+      const src = validateAddress(srcToken, 'word_source', model);
+      const dst = validateAddress(dstToken, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        errors.push({ lineNumber, rawLine, message: src.error ?? `Geçersiz SQR S: ${srcToken}` });
+        continue;
+      }
+      if (!dst.valid || !dst.parsed) {
+        errors.push({ lineNumber, rawLine, message: dst.error ?? `Geçersiz SQR D: ${dstToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'SQR',
+        source: src.parsed.normalized,
+        destination: dst.parsed.normalized,
+      });
+      continue;
+    }
+
+    // 32-Bit Floating Point Move: DMOVR S D
+    if (opcode === 'DMOVR') {
+      const srcToken = tokens[1];
+      const dstToken = tokens[2];
+      if (!srcToken || !dstToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: 'DMOVR komutu için kaynak ve hedef gerekir (örn. DMOVR F10.000 D10).',
+        });
+        continue;
+      }
+      const src = validateAddress(srcToken, 'float_source', model);
+      const dst = validateAddress(dstToken, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        errors.push({ lineNumber, rawLine, message: src.error ?? `Geçersiz DMOVR S: ${srcToken}` });
+        continue;
+      }
+      if (!dst.valid || !dst.parsed) {
+        errors.push({ lineNumber, rawLine, message: dst.error ?? `Geçersiz DMOVR D: ${dstToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'FLOAT_MOV',
+        source: src.parsed.normalized,
+        destination: dst.parsed.normalized,
+      });
+      continue;
+    }
+
+    // 32-Bit Floating Point Arithmetic: DADDR / DSUBR / DMULR / DDIVR S1 S2 D
+    if (FLOAT_MATH_OPS.has(opcode as FloatMathOperator)) {
+      const s1Token = tokens[1];
+      const s2Token = tokens[2];
+      const dstToken = tokens[3];
+      if (!s1Token || !s2Token || !dstToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: `${opcode} komutu için 3 operand gerekir (örn. ${opcode} D10 D20 D30).`,
+        });
+        continue;
+      }
+      const s1 = validateAddress(s1Token, 'float_source', model);
+      const s2 = validateAddress(s2Token, 'float_source', model);
+      const dst = validateAddress(dstToken, 'word_dest', model);
+      if (!s1.valid || !s1.parsed) {
+        errors.push({ lineNumber, rawLine, message: s1.error ?? `Geçersiz ${opcode} S1: ${s1Token}` });
+        continue;
+      }
+      if (!s2.valid || !s2.parsed) {
+        errors.push({ lineNumber, rawLine, message: s2.error ?? `Geçersiz ${opcode} S2: ${s2Token}` });
+        continue;
+      }
+      if (!dst.valid || !dst.parsed) {
+        errors.push({ lineNumber, rawLine, message: dst.error ?? `Geçersiz ${opcode} D: ${dstToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'FLOAT_MATH',
+        operator: opcode as FloatMathOperator,
+        source1: s1.parsed.normalized,
+        source2: s2.parsed.normalized,
+        destination: dst.parsed.normalized,
+      });
+      continue;
+    }
+
+    // 32-Bit Float Unary: DESQR S D, FLT S D
+    if (FLOAT_UNARY_OPS.has(opcode as FloatUnaryOperator)) {
+      const srcToken = tokens[1];
+      const dstToken = tokens[2];
+      if (!srcToken || !dstToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: `${opcode} komutu için kaynak ve hedef gerekir (örn. ${opcode} D30 D40).`,
+        });
+        continue;
+      }
+      const op = opcode as FloatUnaryOperator;
+      const src = validateAddress(srcToken, op === 'FLT' ? 'word_source' : 'float_source', model);
+      const dst = validateAddress(dstToken, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        errors.push({ lineNumber, rawLine, message: src.error ?? `Geçersiz ${opcode} S: ${srcToken}` });
+        continue;
+      }
+      if (!dst.valid || !dst.parsed) {
+        errors.push({ lineNumber, rawLine, message: dst.error ?? `Geçersiz ${opcode} D: ${dstToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'FLOAT_UNARY',
+        operator: op,
+        source: src.parsed.normalized,
+        destination: dst.parsed.normalized,
+      });
+      continue;
+    }
+
+    // RTC Write: TWR / TWRP S (also accepts textbook TRW / TRWP typo aliases)
+    if (opcode === 'TWR' || opcode === 'TWRP' || opcode === 'TRW' || opcode === 'TRWP') {
+      const canonicalOp = opcode === 'TWRP' || opcode === 'TRWP' ? 'TWRP' : 'TWR';
+      if (opcode === 'TRW' || opcode === 'TRWP') {
+        warnings.push(
+          `Satır ${lineNumber}: "${opcode}" yazımı Delta kitap kısaltması olarak "${canonicalOp}" (API 167) komutuna dönüştürüldü.`
+        );
+      }
+      if (!PLC_MODELS[model].hasRtc) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: `${canonicalOp} komutu ${PLC_MODELS[model].label} modelinde desteklenmez (dahili RTC yalnızca DVP-SX2 modelinde mevcuttur).`,
+        });
+        continue;
+      }
+      const srcToken = tokens[1];
+      if (!srcToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: `${canonicalOp} komutu için kaynak başlangıç registerı gerekir (örn. ${canonicalOp} D10).`,
+        });
+        continue;
+      }
+      const src = validateAddress(srcToken, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        errors.push({ lineNumber, rawLine, message: src.error ?? `Geçersiz ${canonicalOp} kaynağı: ${srcToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'TWR',
+        pulsed: canonicalOp === 'TWRP' || undefined,
+        source: src.parsed.normalized,
+      });
+      continue;
+    }
+
+    // RTC Time Zone Compare: TZCP S1 S2 S D
+    if (opcode === 'TZCP') {
+      const s1Token = tokens[1];
+      const s2Token = tokens[2];
+      const curToken = tokens[3];
+      const dstToken = tokens[4];
+      if (!s1Token || !s2Token || !curToken || !dstToken) {
+        errors.push({
+          lineNumber,
+          rawLine,
+          message: 'TZCP komutu için 4 operand gerekir (örn. TZCP D0 D10 D20 M0).',
+        });
+        continue;
+      }
+      const s1 = validateAddress(s1Token, 'word_dest', model);
+      const s2 = validateAddress(s2Token, 'word_dest', model);
+      const cur = validateAddress(curToken, 'word_dest', model);
+      const dst = validateAddress(dstToken, 'bit_coil', model);
+      if (!s1.valid || !s1.parsed) {
+        errors.push({ lineNumber, rawLine, message: s1.error ?? `Geçersiz TZCP S1: ${s1Token}` });
+        continue;
+      }
+      if (!s2.valid || !s2.parsed) {
+        errors.push({ lineNumber, rawLine, message: s2.error ?? `Geçersiz TZCP S2: ${s2Token}` });
+        continue;
+      }
+      if (!cur.valid || !cur.parsed) {
+        errors.push({ lineNumber, rawLine, message: cur.error ?? `Geçersiz TZCP S: ${curToken}` });
+        continue;
+      }
+      if (!dst.valid || !dst.parsed) {
+        errors.push({ lineNumber, rawLine, message: dst.error ?? `Geçersiz TZCP Hedef: ${dstToken}` });
+        continue;
+      }
+      pushOutputElement({
+        kind: 'TZCP',
+        start1: s1.parsed.normalized,
+        start2: s2.parsed.normalized,
+        current: cur.parsed.normalized,
+        destination: dst.parsed.normalized,
+      });
+      continue;
+    }
+
     errors.push({
       lineNumber,
       rawLine,
@@ -1086,7 +1409,7 @@ export function parseIlToLadder(
   }
 
   // Flush final pending rung if END was omitted
-  if (activeMps || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
+  if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
     flushRung(lines.length, lines[lines.length - 1] ?? '');
   }
 

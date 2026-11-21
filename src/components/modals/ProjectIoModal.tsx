@@ -19,12 +19,14 @@ import {
 } from 'lucide-react';
 import type { CompileResult, LadderProgram } from '../../types/plc';
 import { parseIlToLadder, type IlParseError } from '../../core/ilParser';
+import { copyTextToClipboard } from '../../core/clipboard';
 import {
   clearDraftStorage,
   deleteProjectFromLibrary,
   duplicateProjectInLibrary,
   listSavedProjects,
   loadRecoveryDraftFromStorage,
+  MAX_PROJECT_JSON_BYTES,
   parseProgramJson,
   saveProjectToLibrary,
   serializeProgramJson,
@@ -195,14 +197,14 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   const fileSlug = sanitizeFileSlug(program.projectName);
 
   const handleCopyPureIl = async () => {
-    try {
-      await navigator.clipboard.writeText(compileResult.rawIlText);
+    const ok = await copyTextToClipboard(compileResult.rawIlText);
+    if (ok) {
       setCopiedIl(true);
       onNotify(
         'Saf Delta IL kodu panoya kopyalandı (satır numarasız, PC WPLSoft Ctrl+V uyumlu).'
       );
       window.setTimeout(() => setCopiedIl(false), 1800);
-    } catch {
+    } else {
       onNotify('Panoya erişilemedi; metni seçerek manuel kopyalayabilirsiniz.');
     }
   };
@@ -284,6 +286,15 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
     setJsonError(null);
+    if (file.size > MAX_PROJECT_JSON_BYTES) {
+      setJsonError(
+        `Seçilen JSON dosyası izin verilen maksimum boyutu (${Math.round(
+          MAX_PROJECT_JSON_BYTES / (1024 * 1024)
+        )} MB) aşıyor.`
+      );
+      e.target.value = '';
+      return;
+    }
     try {
       const text = await file.text();
       const parsed = parseProgramJson(text);

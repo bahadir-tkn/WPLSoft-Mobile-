@@ -108,7 +108,8 @@ export function createBlankProgram(
 
 export function insertRungAfter(
   program: LadderProgram,
-  afterRungIndex: number
+  afterRungIndex: number,
+  updatedAt?: string
 ): { program: LadderProgram; insertedIndex: number } {
   const endIndex = program.rungs.findIndex((r) => r.isEnd);
   const safeInsertIndex =
@@ -124,14 +125,15 @@ export function insertRungAfter(
     program: {
       ...program,
       rungs: nextRungs,
-      updatedAt: new Date().toISOString(),
+      updatedAt: updatedAt ?? program.updatedAt,
     },
   };
 }
 
 export function deleteRungAt(
   program: LadderProgram,
-  rungIndex: number
+  rungIndex: number,
+  updatedAt?: string
 ): { program: LadderProgram; nextRungIndex: number; deleted: boolean } {
   const target = program.rungs[rungIndex];
   if (!target || target.isEnd) {
@@ -153,7 +155,7 @@ export function deleteRungAt(
     program: {
       ...program,
       rungs: nextRungs,
-      updatedAt: new Date().toISOString(),
+      updatedAt: updatedAt ?? program.updatedAt,
     },
   };
 }

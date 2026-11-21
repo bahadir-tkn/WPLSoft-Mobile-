@@ -6,6 +6,7 @@ import {
   Clock,
   Cpu,
   SlidersHorizontal,
+  X,
 } from 'lucide-react';
 import type {
   InputSwitchMode,
@@ -30,6 +31,7 @@ interface DeviceMonitorProps {
   simState: SimState;
   inputModes: Record<string, InputSwitchMode>;
   isOpen: boolean;
+  dockMode?: 'bottom' | 'right';
   onToggleOpen: () => void;
   onSetInputBit: (address: string, value: boolean) => void;
   onToggleInputBit: (address: string) => void;
@@ -63,6 +65,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
   simState,
   inputModes,
   isOpen,
+  dockMode = 'bottom',
   onToggleOpen,
   onSetInputBit,
   onToggleInputBit,
@@ -154,39 +157,50 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
   };
 
   const supportsSx2Hardware = modelSpec.analogInputCount > 0 || modelSpec.hasRtc;
+  const isRightDock = dockMode === 'right';
+
+  // In phone-landscape side dock, collapsing frees 100% width for the Ladder Diagram
+  if (isRightDock && !isOpen) {
+    return null;
+  }
 
   return (
     <section
       aria-label="Device Monitor Sanal PLC İzleme Paneli"
       data-testid="device-monitor"
-      className="shrink-0 bg-[#F7F8FA] border-t-2 border-[#0B4EA2] flex flex-col shadow-[0_-2px_8px_rgba(15,23,42,0.08)]"
+      data-dock-mode={dockMode}
+      className={
+        isRightDock
+          ? 'w-[266px] sm:w-[292px] shrink-0 h-full bg-[#F7F8FA] border-l-2 border-[#0B4EA2] flex flex-col overflow-hidden shadow-[-2px_0_8px_rgba(15,23,42,0.08)]'
+          : 'shrink-0 bg-[#F7F8FA] border-t-2 border-[#0B4EA2] flex flex-col shadow-[0_-2px_8px_rgba(15,23,42,0.08)]'
+      }
     >
-      {/* Monitor Header Bar */}
-      <div className="shrink-0 bg-[#E6E9EF] border-b border-[#CBD2DC] px-2.5 sm:px-3.5 py-1.5 flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2 min-w-0">
-          <SlidersHorizontal
-            className="w-4 h-4 text-[#0B4EA2] shrink-0"
-            aria-hidden="true"
-          />
-          <span className="text-xs font-bold text-[#0F172A] whitespace-nowrap">
-            Device Monitor
-          </span>
-          <span
-            className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded border whitespace-nowrap ${
-              simState.running
-                ? 'bg-[#E6F9EE] border-[#00C853] text-[#007A33]'
-                : 'bg-[#FEF2F2] border-[#FCA5A5] text-[#B91C1C]'
-            }`}
-            data-testid="monitor-run-state"
-          >
-            {simState.running ? 'RUN' : 'STOP'}
-          </span>
-          <span className="hidden sm:inline font-mono text-[11px] text-[#475569] whitespace-nowrap">
-            Tarama #{simState.scanCount}
-          </span>
-        </div>
+      {/* Monitor Header Bar (No redundant RUN/STOP or scan counter — OnlineSimBar already displays them) */}
+      <div
+        className={`shrink-0 bg-[#E6E9EF] border-b border-[#CBD2DC] flex items-center justify-between gap-1.5 ${
+          isRightDock ? 'px-2 py-1' : 'px-2.5 sm:px-3.5 py-1'
+        }`}
+      >
+        {!isRightDock && (
+          <div className="flex items-center gap-1.5 min-w-0">
+            <SlidersHorizontal
+              className="w-3.5 h-3.5 text-[#0B4EA2] shrink-0"
+              aria-hidden="true"
+            />
+            <span className="text-xs font-bold text-[#0F172A] whitespace-nowrap hidden sm:inline">
+              Device Monitor
+            </span>
+            <span className="text-xs font-bold text-[#0F172A] whitespace-nowrap sm:hidden">
+              I/O
+            </span>
+          </div>
+        )}
 
-        <div className="flex items-center gap-1 sm:gap-1.5">
+        <div
+          className={`flex items-center gap-1 ${
+            isRightDock ? 'w-full justify-between' : ''
+          }`}
+        >
           {/* Tabs */}
           <div
             role="tablist"
@@ -201,13 +215,15 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 setActiveTab('io');
                 if (!isOpen) onToggleOpen();
               }}
-              className={`h-7 px-2 sm:px-2.5 rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`h-6 ${
+                isRightDock ? 'px-1.5' : 'px-2 sm:px-2.5'
+              } rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'io'
                   ? 'bg-white text-[#0B4EA2] shadow-xs'
                   : 'text-[#475569] hover:text-[#0F172A]'
               }`}
             >
-              X · Y
+              X·Y
             </button>
             <button
               type="button"
@@ -217,13 +233,15 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 setActiveTab('rtc');
                 if (!isOpen) onToggleOpen();
               }}
-              className={`h-7 px-2 sm:px-2.5 rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`h-6 ${
+                isRightDock ? 'px-1.5' : 'px-2 sm:px-2.5'
+              } rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'rtc'
                   ? 'bg-white text-[#0B4EA2] shadow-xs'
                   : 'text-[#475569] hover:text-[#0F172A]'
               }`}
             >
-              M · T · C
+              M·T·C
             </button>
             <button
               type="button"
@@ -233,13 +251,15 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 setActiveTab('registers');
                 if (!isOpen) onToggleOpen();
               }}
-              className={`h-7 px-2 sm:px-2.5 rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`h-6 ${
+                isRightDock ? 'px-1.5' : 'px-2 sm:px-2.5'
+              } rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'registers'
                   ? 'bg-white text-[#0B4EA2] shadow-xs'
                   : 'text-[#475569] hover:text-[#0F172A]'
               }`}
             >
-              D Reg
+              {isRightDock ? 'D' : 'D Reg'}
             </button>
             <button
               type="button"
@@ -255,7 +275,9 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 setActiveTab('sx2');
                 if (!isOpen) onToggleOpen();
               }}
-              className={`h-7 px-2 sm:px-2.5 rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
+              className={`h-6 ${
+                isRightDock ? 'px-1.5' : 'px-2 sm:px-2.5'
+              } rounded-[3px] text-[11px] font-semibold transition-colors whitespace-nowrap cursor-pointer ${
                 activeTab === 'sx2'
                   ? 'bg-white text-[#0B4EA2] shadow-xs'
                   : supportsSx2Hardware
@@ -263,19 +285,29 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                     : 'text-[#94A3B8] hover:text-[#475569]'
               }`}
             >
-              <span className="hidden sm:inline">SX2 Analog / RTC</span>
-              <span className="sm:hidden">AD/RTC</span>
+              {isRightDock ? (
+                <span>AD</span>
+              ) : (
+                <>
+                  <span className="hidden sm:inline">SX2 Analog / RTC</span>
+                  <span className="sm:hidden">AD/RTC</span>
+                </>
+              )}
             </button>
           </div>
 
           <button
             type="button"
+            data-testid="device-monitor-collapse-btn"
             onClick={onToggleOpen}
             aria-expanded={isOpen}
-            aria-label={isOpen ? 'Device Monitor çekmecesini daralt' : 'Device Monitor çekmecesini aç'}
-            className="h-8 w-8 rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-[#334155] flex items-center justify-center shrink-0 cursor-pointer"
+            aria-label={isOpen ? 'Device Monitor panelini kapat' : 'Device Monitor panelini aç'}
+            title={isOpen ? 'Paneli daralt' : 'Paneli aç'}
+            className="h-7 w-7 rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-[#334155] flex items-center justify-center shrink-0 cursor-pointer"
           >
-            {isOpen ? (
+            {isRightDock ? (
+              <X className="w-3.5 h-3.5" aria-hidden="true" />
+            ) : isOpen ? (
               <ChevronDown className="w-4 h-4" aria-hidden="true" />
             ) : (
               <ChevronUp className="w-4 h-4" aria-hidden="true" />
@@ -286,30 +318,56 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
 
       {/* Collapsible Content Area */}
       {isOpen && (
-        <div className="max-h-[255px] sm:max-h-[245px] overflow-y-auto wpl-scrollbar p-2.5 sm:p-3">
+        <div
+          className={
+            isRightDock
+              ? 'flex-1 min-h-0 overflow-y-auto wpl-scrollbar p-2'
+              : 'max-h-[36dvh] sm:max-h-[230px] overflow-y-auto wpl-scrollbar p-2 sm:p-2.5'
+          }
+        >
           {activeTab === 'io' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-3">
+            <div
+              className={
+                isRightDock
+                  ? 'flex flex-col gap-2'
+                  : 'grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-3'
+              }
+            >
               {/* Digital Inputs X0–X17 */}
-              <div className="order-2 lg:order-1 lg:col-span-7 bg-white border border-[#CBD2DC] rounded p-2 sm:p-2.5">
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
+              <div
+                className={
+                  isRightDock
+                    ? 'order-2 bg-white border border-[#CBD2DC] rounded p-1.5'
+                    : 'order-2 lg:order-1 lg:col-span-7 bg-white border border-[#CBD2DC] rounded p-2 sm:p-2.5'
+                }
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <h2 className="text-xs font-bold text-[#0F172A] whitespace-nowrap">
-                      Giriş Anahtarları (X)
+                      {isRightDock ? 'Girişler (X)' : 'Giriş Anahtarları (X)'}
                     </h2>
-                    <span className="text-[11px] font-mono text-[#64748B] truncate">
-                      {showExpansionInputs ? 'X0–X17' : 'X0–X7 Dahili'}
-                    </span>
+                    {!isRightDock && (
+                      <span className="text-[11px] font-mono text-[#64748B] truncate">
+                        {showExpansionInputs ? 'X0–X17' : 'X0–X7 Dahili'}
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowExpansionInputs((v) => !v)}
-                    className="h-6 px-2 rounded border border-[#CBD2DC] bg-[#F8FAFC] hover:bg-[#EDF4FC] text-[11px] font-medium text-[#0B4EA2] whitespace-nowrap cursor-pointer"
+                    className="h-6 px-1.5 rounded border border-[#CBD2DC] bg-[#F8FAFC] hover:bg-[#EDF4FC] text-[10px] font-medium text-[#0B4EA2] whitespace-nowrap cursor-pointer"
                   >
-                    {showExpansionInputs ? 'Yalnız Dahili' : '+ X10–X17'}
+                    {showExpansionInputs ? 'X0–X7' : '+ X10–X17'}
                   </button>
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                <div
+                  className={
+                    isRightDock
+                      ? 'grid grid-cols-2 gap-1.5'
+                      : 'grid grid-cols-2 sm:grid-cols-4 gap-1.5'
+                  }
+                >
                   {visibleInputs.map((addr) => {
                     const isOn = Boolean(simState.inputs[addr]);
                     const mode: InputSwitchMode = inputModes[addr] ?? 'toggle';
@@ -361,10 +419,18 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                             isMomentary ? 'Anlık buton' : 'Kalıcı anahtar'
                           }) — ${isOn ? 'ON' : 'OFF'}`}
                           onClick={isMomentary ? undefined : () => onToggleInputBit(addr)}
+                          onContextMenu={
+                            isMomentary ? (e) => e.preventDefault() : undefined
+                          }
                           onPointerDown={
                             isMomentary
                               ? (e) => {
                                   e.preventDefault();
+                                  try {
+                                    e.currentTarget.setPointerCapture(e.pointerId);
+                                  } catch {
+                                    // Synthetic pointer events may not support capture
+                                  }
                                   handleMomentaryPress(addr);
                                 }
                               : undefined
@@ -398,7 +464,11 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                                 }
                               : undefined
                           }
-                          className={`min-h-[44px] w-full rounded border px-2 py-1 flex flex-col items-center justify-center touch-none select-none transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] ${
+                          className={`${
+                            isRightDock ? 'min-h-[34px] py-0.5' : 'min-h-[42px] py-1'
+                          } w-full rounded border px-1.5 flex flex-col items-center justify-center ${
+                            isMomentary ? 'wpl-touch-hold' : 'touch-manipulation select-none'
+                          } transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] ${
                             isOn
                               ? 'bg-[#00C853] border-[#00963F] text-white'
                               : 'bg-white border-[#B8C2D1] text-[#334155] hover:bg-[#F1F5F9]'
@@ -429,29 +499,37 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 </div>
               </div>
 
-              {/* Digital Outputs Y0–Y17 (Shown above X inputs on mobile for instant LED visibility) */}
-              <div className="order-1 lg:order-2 lg:col-span-5 bg-white border border-[#CBD2DC] rounded p-2 sm:p-2.5">
-                <div className="flex items-center justify-between gap-2 mb-1.5 sm:mb-2">
-                  <div className="flex items-center gap-2 min-w-0">
+              {/* Digital Outputs Y0–Y17 (Shown above X inputs on mobile & right-dock for instant LED visibility) */}
+              <div
+                className={
+                  isRightDock
+                    ? 'order-1 bg-white border border-[#CBD2DC] rounded p-1.5'
+                    : 'order-1 lg:order-2 lg:col-span-5 bg-white border border-[#CBD2DC] rounded p-2 sm:p-2.5'
+                }
+              >
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     <h2 className="text-xs font-bold text-[#0F172A] whitespace-nowrap">
-                      Çıkış LED&apos;leri (Y)
+                      {isRightDock ? 'Çıkışlar (Y)' : "Çıkış LED'leri (Y)"}
                     </h2>
-                    <span className="text-[11px] font-mono text-[#64748B] truncate">
-                      {showExpansionOutputs
-                        ? 'Y0–Y17'
-                        : `Y0–${modelSpec.onboardOutputs[modelSpec.onboardOutputs.length - 1]} Dahili`}
-                    </span>
+                    {!isRightDock && (
+                      <span className="text-[11px] font-mono text-[#64748B] truncate">
+                        {showExpansionOutputs
+                          ? 'Y0–Y17'
+                          : `Y0–${modelSpec.onboardOutputs[modelSpec.onboardOutputs.length - 1]} Dahili`}
+                      </span>
+                    )}
                   </div>
                   <button
                     type="button"
                     onClick={() => setShowExpansionOutputs((v) => !v)}
-                    className="h-6 px-2 rounded border border-[#CBD2DC] bg-[#F8FAFC] hover:bg-[#EDF4FC] text-[11px] font-medium text-[#0B4EA2] whitespace-nowrap cursor-pointer"
+                    className="h-6 px-1.5 rounded border border-[#CBD2DC] bg-[#F8FAFC] hover:bg-[#EDF4FC] text-[10px] font-medium text-[#0B4EA2] whitespace-nowrap cursor-pointer"
                   >
-                    {showExpansionOutputs ? 'Yalnız Dahili' : '+ Y10–Y17'}
+                    {showExpansionOutputs ? 'Dahili' : '+ Y10–Y17'}
                   </button>
                 </div>
 
-                <div className="grid grid-cols-3 gap-1.5">
+                <div className="grid grid-cols-3 gap-1">
                   {visibleOutputs.map((addr) => {
                     const isOn = Boolean(simState.outputs[addr]);
                     const comment = program.deviceComments[addr];
@@ -460,7 +538,11 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                         key={addr}
                         data-testid={`output-led-${addr}`}
                         aria-label={`Çıkış ${addr} durumu: ${isOn ? 'ON' : 'OFF'}`}
-                        className={`min-h-[38px] sm:min-h-[54px] rounded border px-2 sm:px-2.5 py-1.5 sm:py-2 flex items-center gap-1.5 sm:gap-2.5 transition-colors ${
+                        className={`${
+                          isRightDock
+                            ? 'min-h-[34px] px-1.5 py-1 gap-1'
+                            : 'min-h-[38px] sm:min-h-[50px] px-2 sm:px-2.5 py-1.5 gap-1.5 sm:gap-2'
+                        } rounded border flex items-center transition-colors ${
                           isOn
                             ? 'bg-[#E6F9EE] border-[#00C853]'
                             : 'bg-[#FAFBFD] border-[#D1D8E3]'
@@ -502,7 +584,13 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
           )}
 
           {activeTab === 'rtc' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <div
+              className={
+                isRightDock
+                  ? 'grid grid-cols-1 gap-2'
+                  : 'grid grid-cols-1 lg:grid-cols-3 gap-3'
+              }
+            >
               {/* Special & Auxiliary Relays (M) */}
               <div className="bg-white border border-[#CBD2DC] rounded p-2.5 space-y-2">
                 <h2 className="text-xs font-bold text-[#0F172A]">
@@ -566,10 +654,10 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 </div>
               </div>
 
-              {/* Timers (T0–T199: 100ms, T200–T245: 10ms) */}
+              {/* Timers (T0–T199: 100ms, T200–T245: 10ms, T246–T249: 1ms) */}
               <div className="bg-white border border-[#CBD2DC] rounded p-2.5 space-y-2">
                 <h2 className="text-xs font-bold text-[#0F172A]">
-                  Zamanlayıcılar (TMR · 100ms / 10ms)
+                  Zamanlayıcılar (TMR · 100ms / 10ms / 1ms)
                 </h2>
                 <div className="space-y-1.5">
                   {timerList.map((addr) => {
@@ -579,7 +667,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                     const done = Boolean(rt?.done);
                     const baseMs = getTimerTimeBaseMs(addr);
                     const secondsStr = ((cur * baseMs) / 1000).toFixed(
-                      baseMs === 10 ? 2 : 1
+                      baseMs === 1 ? 3 : baseMs === 10 ? 2 : 1
                     );
                     const pct =
                       preset > 0 ? Math.min(100, Math.round((cur / preset) * 100)) : 0;
@@ -700,7 +788,13 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              <div
+                className={
+                  isRightDock
+                    ? 'grid grid-cols-1 gap-1.5'
+                    : 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2'
+                }
+              >
                 {registerList.map((addr) => {
                   const val = simState.registers[addr] ?? 0;
                   const draft = registerDrafts[addr];
@@ -717,6 +811,8 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                       <div className="flex items-center gap-1">
                         <input
                           type="number"
+                          inputMode="numeric"
+                          enterKeyHint="done"
                           min={-32768}
                           max={32767}
                           aria-label={`${addr} yeni değeri`}
@@ -762,29 +858,46 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
           )}
 
           {activeTab === 'sx2' && supportsSx2Hardware && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-3">
+            <div
+              className={
+                isRightDock
+                  ? 'grid grid-cols-1 gap-2'
+                  : 'grid grid-cols-1 lg:grid-cols-12 gap-2.5 sm:gap-3'
+              }
+            >
               {/* SX2 4-Channel Analog Inputs AD0-AD3 (D1110-D1113) */}
-              <div className="lg:col-span-7 bg-white border border-[#CBD2DC] rounded p-2.5 space-y-2">
+              <div
+                className={`${
+                  isRightDock ? '' : 'lg:col-span-7'
+                } bg-white border border-[#CBD2DC] rounded p-2 space-y-2`}
+              >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5">
                     <Activity className="w-3.5 h-3.5 text-[#0B4EA2]" aria-hidden="true" />
                     <h2 className="text-xs font-bold text-[#0F172A]">
-                      SX2 Analog Girişler (AD0–AD3 → D1110–D1113)
+                      {isRightDock ? 'SX2 Analog (D1110–13)' : 'SX2 Analog Girişler (AD0–AD3 → D1110–D1113)'}
                     </h2>
                   </div>
-                  <span className="font-mono text-[11px] text-[#64748B]">
-                    0–2000 (0–10V · 12-bit)
+                  <span className="font-mono text-[10px] text-[#64748B]">
+                    0–2000 (0–10V)
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div
+                  className={
+                    isRightDock
+                      ? 'grid grid-cols-1 gap-1.5'
+                      : 'grid grid-cols-1 sm:grid-cols-2 gap-2'
+                  }
+                >
                   {SX2_ANALOG_INPUT_CHANNELS.map((ch) => {
                     const rawVal = Math.max(
                       ch.min,
                       Math.min(ch.max, simState.registers[ch.register] ?? 0)
                     );
                     const voltage = ((rawVal / ch.max) * 10).toFixed(2);
-                    const tempC = ((rawVal / ch.max) * 100).toFixed(1);
+                    // LM35 (10mV/°C) on DVP-SX2 12-bit 0–10V ADC (5mV/birim) -> T(°C) = D1110 / 2
+                    const tempC = (rawVal / 2).toFixed(1);
                     return (
                       <div
                         key={ch.register}
@@ -818,12 +931,12 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                           className="w-full h-2 accent-[#0B4EA2] cursor-pointer"
                         />
 
-                        <div className="flex items-center justify-between gap-1">
+                        <div className="flex items-center justify-between gap-1 flex-wrap">
                           <span className="font-mono text-[10px] text-[#475569]">
-                            {voltage}V · {tempC}°C
+                            {voltage}V · {tempC}°C (LM35)
                           </span>
                           <div className="flex items-center gap-1">
-                            {[0, 500, 1000, 2000].map((preset) => (
+                            {[0, 50, 500, 1000, 2000].map((preset) => (
                               <button
                                 key={preset}
                                 type="button"
@@ -846,7 +959,11 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
               </div>
 
               {/* SX2 Built-in Real-Time Clock (RTC · D1313-D1319) */}
-              <div className="lg:col-span-5 bg-white border border-[#CBD2DC] rounded p-2.5 space-y-2">
+              <div
+                className={`${
+                  isRightDock ? '' : 'lg:col-span-5'
+                } bg-white border border-[#CBD2DC] rounded p-2 space-y-2`}
+              >
                 <div className="flex items-center justify-between gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-[#0B4EA2]" aria-hidden="true" />
@@ -900,7 +1017,13 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                 </div>
 
                 {/* 7 Individual RTC Registers */}
-                <div className="grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-4 gap-1.5">
+                <div
+                  className={
+                    isRightDock
+                      ? 'grid grid-cols-4 gap-1'
+                      : 'grid grid-cols-4 sm:grid-cols-7 lg:grid-cols-4 gap-1.5'
+                  }
+                >
                   {SX2_RTC_REGISTERS.map((rtc) => {
                     const val = simState.registers[rtc.register] ?? 0;
                     return (

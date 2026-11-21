@@ -67,11 +67,13 @@ function instructionStepCost(opcode: IlOpcode): number {
     opcode === 'INCP' ||
     opcode === 'DEC' ||
     opcode === 'DECP' ||
-    opcode === 'TRD'
+    opcode === 'TRD' ||
+    opcode === 'TWR' ||
+    opcode === 'TWRP'
   ) {
     return 3;
   }
-  if (opcode === 'MOV' || opcode === 'ZRST') return 5;
+  if (opcode === 'MOV' || opcode === 'ZRST' || opcode === 'SQR' || opcode === 'FLT') return 5;
   if (
     opcode === 'CMP' ||
     opcode === 'ADD' ||
@@ -80,6 +82,17 @@ function instructionStepCost(opcode: IlOpcode): number {
     opcode === 'DIV'
   ) {
     return 7;
+  }
+  if (opcode === 'DMOVR' || opcode === 'DESQR' || opcode === 'TZCP') {
+    return 9;
+  }
+  if (
+    opcode === 'DADDR' ||
+    opcode === 'DSUBR' ||
+    opcode === 'DMULR' ||
+    opcode === 'DDIVR'
+  ) {
+    return 13;
   }
   if (
     opcode.startsWith('LD=') ||
@@ -253,6 +266,48 @@ function emitOutput(
       out.push({
         opcode: 'TRD',
         operands: [element.destination],
+        rungIndex,
+      });
+      return;
+    case 'SQR':
+      out.push({
+        opcode: 'SQR',
+        operands: [element.source, element.destination],
+        rungIndex,
+      });
+      return;
+    case 'FLOAT_MOV':
+      out.push({
+        opcode: 'DMOVR',
+        operands: [element.source, element.destination],
+        rungIndex,
+      });
+      return;
+    case 'FLOAT_MATH':
+      out.push({
+        opcode: element.operator,
+        operands: [element.source1, element.source2, element.destination],
+        rungIndex,
+      });
+      return;
+    case 'FLOAT_UNARY':
+      out.push({
+        opcode: element.operator,
+        operands: [element.source, element.destination],
+        rungIndex,
+      });
+      return;
+    case 'TWR':
+      out.push({
+        opcode: element.pulsed ? 'TWRP' : 'TWR',
+        operands: [element.source],
+        rungIndex,
+      });
+      return;
+    case 'TZCP':
+      out.push({
+        opcode: 'TZCP',
+        operands: [element.start1, element.start2, element.current, element.destination],
         rungIndex,
       });
       return;
@@ -575,6 +630,192 @@ function validateProgramCells(
               address: el.destination,
             });
           }
+        } else if (el.kind === 'SQR') {
+          const src = validateAddress(el.source, 'word_source', program.model);
+          const dst = validateAddress(el.destination, 'word_dest', program.model);
+          if (!src.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} SQR Kaynak: ${src.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source,
+            });
+          }
+          if (!dst.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} SQR Hedef: ${dst.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.destination,
+            });
+          }
+        } else if (el.kind === 'FLOAT_MOV') {
+          const src = validateAddress(el.source, 'float_source', program.model);
+          const dst = validateAddress(el.destination, 'word_dest', program.model);
+          if (!src.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} DMOVR Kaynak: ${src.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source,
+            });
+          }
+          if (!dst.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} DMOVR Hedef: ${dst.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.destination,
+            });
+          }
+        } else if (el.kind === 'FLOAT_MATH') {
+          const s1 = validateAddress(el.source1, 'float_source', program.model);
+          const s2 = validateAddress(el.source2, 'float_source', program.model);
+          const dst = validateAddress(el.destination, 'word_dest', program.model);
+          if (!s1.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.operator} S1: ${s1.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source1,
+            });
+          }
+          if (!s2.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.operator} S2: ${s2.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source2,
+            });
+          }
+          if (!dst.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.operator} Hedef: ${dst.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.destination,
+            });
+          }
+        } else if (el.kind === 'FLOAT_UNARY') {
+          const srcRole = el.operator === 'FLT' ? 'word_source' : 'float_source';
+          const src = validateAddress(el.source, srcRole, program.model);
+          const dst = validateAddress(el.destination, 'word_dest', program.model);
+          if (!src.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.operator} Kaynak: ${src.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source,
+            });
+          }
+          if (!dst.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.operator} Hedef: ${dst.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.destination,
+            });
+          }
+        } else if (el.kind === 'TWR') {
+          if (!modelSpec.hasRtc) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'SYNTAX_ERROR',
+              message: `${rungTag} ${el.pulsed ? 'TWRP' : 'TWR'}: ${modelSpec.label} modelinde dahili gerçek zaman saati (RTC) yoktur. TWR yalnızca DVP-SX2 modelinde desteklenir.`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source,
+            });
+          }
+          const src = validateAddress(el.source, 'word_dest', program.model);
+          if (!src.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} ${el.pulsed ? 'TWRP' : 'TWR'} Kaynak: ${src.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.source,
+            });
+          }
+        } else if (el.kind === 'TZCP') {
+          const s1 = validateAddress(el.start1, 'word_dest', program.model);
+          const s2 = validateAddress(el.start2, 'word_dest', program.model);
+          const cur = validateAddress(el.current, 'word_dest', program.model);
+          const dst = validateAddress(el.destination, 'bit_coil', program.model);
+          if (!s1.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} TZCP S1: ${s1.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.start1,
+            });
+          }
+          if (!s2.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} TZCP S2: ${s2.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.start2,
+            });
+          }
+          if (!cur.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} TZCP S (Saat): ${cur.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.current,
+            });
+          }
+          if (!dst.valid) {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag} TZCP Hedef (D): ${dst.error}`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.destination,
+            });
+          }
         }
       });
     });
@@ -698,7 +939,90 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
 
     validBranches.sort((a, b) => a.rowIndex - b.rowIndex);
 
-    // Emit single or MPS / MRD / MPP multi-output branches sharing a common logic prefix
+    const emitBranchCluster = (
+      startIdx: number,
+      endIdx: number,
+      prefixDepth: number,
+      isRoot: boolean
+    ): void => {
+      if (startIdx >= endIdx) return;
+
+      if (endIdx - startIdx === 1) {
+        const single = validBranches[startIdx];
+        const remaining = single.factors.slice(prefixDepth);
+        if (remaining.length > 0) {
+          if (isRoot) {
+            emitLogicAst(factorsToAst(remaining), 'LD', rungIndex, rawInstructions);
+          } else {
+            for (const factor of remaining) {
+              emitLogicAst(factor, 'AND', rungIndex, rawInstructions);
+            }
+          }
+        }
+        emitOutput(single.element, rungIndex, rawInstructions);
+        trackOutCoil(single.element, rungIndex, single.rowIndex);
+        return;
+      }
+
+      const firstFactors = validBranches[startIdx].factors;
+      let sharedEnd = firstFactors.length;
+      for (let k = startIdx + 1; k < endIdx; k += 1) {
+        const matchLen = commonPrefixLength(
+          firstFactors.slice(0, sharedEnd),
+          validBranches[k].factors
+        );
+        sharedEnd = Math.min(sharedEnd, matchLen);
+      }
+
+      const sharedSlice = firstFactors.slice(prefixDepth, sharedEnd);
+      if (sharedSlice.length > 0) {
+        if (isRoot) {
+          emitLogicAst(factorsToAst(sharedSlice), 'LD', rungIndex, rawInstructions);
+        } else {
+          for (const factor of sharedSlice) {
+            emitLogicAst(factor, 'AND', rungIndex, rawInstructions);
+          }
+        }
+      }
+
+      // Group contiguous sub-branches that share the next factor after sharedEnd
+      const childGroups: [number, number][] = [];
+      let g = startIdx;
+      while (g < endIdx) {
+        if (validBranches[g].factors.length === sharedEnd) {
+          childGroups.push([g, g + 1]);
+          g += 1;
+          continue;
+        }
+        const nextFp = fingerprintLogicNode(validBranches[g].factors[sharedEnd]);
+        let gEnd = g + 1;
+        while (
+          gEnd < endIdx &&
+          validBranches[gEnd].factors.length > sharedEnd &&
+          fingerprintLogicNode(validBranches[gEnd].factors[sharedEnd]) === nextFp
+        ) {
+          gEnd += 1;
+        }
+        childGroups.push([g, gEnd]);
+        g = gEnd;
+      }
+
+      const needsMpsStack = childGroups.some(
+        ([cs, ce]) => ce - cs > 1 || validBranches[cs].factors.length > sharedEnd
+      );
+
+      for (let ci = 0; ci < childGroups.length; ci += 1) {
+        const [cs, ce] = childGroups[ci];
+        if (needsMpsStack) {
+          const stackOp: IlOpcode =
+            ci === 0 ? 'MPS' : ci === childGroups.length - 1 ? 'MPP' : 'MRD';
+          rawInstructions.push({ opcode: stackOp, operands: [], rungIndex });
+        }
+        emitBranchCluster(cs, ce, sharedEnd, false);
+      }
+    };
+
+    // Emit single or recursive nested MPS / MRD / MPP multi-output branches sharing a common logic prefix
     let idx = 0;
     while (idx < validBranches.length) {
       const first = validBranches[idx];
@@ -715,37 +1039,7 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
         endIdx += 1;
       }
 
-      const cluster = validBranches.slice(idx, endIdx);
-      if (cluster.length === 1) {
-        emitLogicAst(factorsToAst(first.factors), 'LD', rungIndex, rawInstructions);
-        emitOutput(first.element, rungIndex, rawInstructions);
-        trackOutCoil(first.element, rungIndex, first.rowIndex);
-      } else {
-        const sharedPrefix = first.factors.slice(0, sharedPrefixLen);
-        emitLogicAst(factorsToAst(sharedPrefix), 'LD', rungIndex, rawInstructions);
-
-        const needsMpsStack = cluster.some(
-          (branch) => branch.factors.length > sharedPrefixLen
-        );
-
-        for (let b = 0; b < cluster.length; b += 1) {
-          const branch = cluster[b];
-          if (needsMpsStack) {
-            const stackOp: IlOpcode =
-              b === 0 ? 'MPS' : b === cluster.length - 1 ? 'MPP' : 'MRD';
-            rawInstructions.push({ opcode: stackOp, operands: [], rungIndex });
-          }
-
-          const suffix = branch.factors.slice(sharedPrefixLen);
-          for (const factor of suffix) {
-            emitLogicAst(factor, 'AND', rungIndex, rawInstructions);
-          }
-
-          emitOutput(branch.element, rungIndex, rawInstructions);
-          trackOutCoil(branch.element, rungIndex, branch.rowIndex);
-        }
-      }
-
+      emitBranchCluster(idx, endIdx, 0, true);
       idx = endIdx;
     }
   });

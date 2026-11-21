@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Check, Edit3, ListTree, Search, Tag, X } from 'lucide-react';
+import { shouldAutoFocusInput } from '../../core/clipboard';
 import type { DevicePrefix, LadderProgram } from '../../types/plc';
 import {
   buildAddressCrossReference,
@@ -7,7 +8,7 @@ import {
 } from '../../core/ladderOperations';
 
 type ModalTab = 'search' | 'crossref';
-type PrefixFilter = 'ALL' | Exclude<DevicePrefix, 'K'>;
+type PrefixFilter = 'ALL' | Exclude<DevicePrefix, 'K' | 'F'>;
 
 interface SearchCrossRefModalProps {
   isOpen: boolean;
@@ -182,7 +183,11 @@ export const SearchCrossRefModal: React.FC<SearchCrossRefModalProps> = ({
               data-testid="ladder-search-input"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              autoFocus
+              autoFocus={shouldAutoFocusInput()}
+              autoComplete="off"
+              autoCorrect="off"
+              enterKeyHint="search"
+              spellCheck={false}
               placeholder={
                 activeTab === 'search'
                   ? 'Adres, komut veya açıklama yazın (Örn: X0, Y0, TMR, Motor)...'

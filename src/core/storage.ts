@@ -3,6 +3,8 @@ import type {
   CoilKind,
   CompareOperator,
   ContactKind,
+  FloatMathOperator,
+  FloatUnaryOperator,
   IncDecOperator,
   LadderProgram,
   LadderRung,
@@ -28,6 +30,8 @@ const VALID_CONTACTS = new Set<ContactKind>(['NO', 'NC', 'RISING', 'FALLING']);
 const VALID_COILS = new Set<CoilKind>(['OUT', 'SET', 'RST']);
 const VALID_COMPARES = new Set<CompareOperator>(['=', '>', '<', '>=', '<=', '<>']);
 const VALID_MATHS = new Set<MathOperator>(['ADD', 'SUB', 'MUL', 'DIV']);
+const VALID_FLOAT_MATHS = new Set<FloatMathOperator>(['DADDR', 'DSUBR', 'DMULR', 'DDIVR']);
+const VALID_FLOAT_UNARY = new Set<FloatUnaryOperator>(['DESQR', 'FLT']);
 const VALID_INCDECS = new Set<IncDecOperator>(['INC', 'INCP', 'DEC', 'DECP']);
 const OUTPUT_ELEMENT_KINDS = new Set<CellElement['kind']>([
   'COIL',
@@ -38,8 +42,14 @@ const OUTPUT_ELEMENT_KINDS = new Set<CellElement['kind']>([
   'ZRST',
   'CMP',
   'MATH',
+  'SQR',
+  'FLOAT_MOV',
+  'FLOAT_MATH',
+  'FLOAT_UNARY',
   'INCDEC',
   'TRD',
+  'TWR',
+  'TZCP',
 ]);
 const LOGIC_ELEMENT_KINDS = new Set<CellElement['kind']>(['CONTACT', 'COMPARE', 'HLINE']);
 
@@ -362,6 +372,178 @@ function validateCellElement(
       };
     }
 
+    case 'SQR': {
+      if (!isNonEmptyString(el.source) || !isNonEmptyString(el.destination)) {
+        return { valid: false, error: `${locationTag}: SQR kaynak veya hedef adresi eksik.` };
+      }
+      const src = validateAddress(el.source, 'word_source', model);
+      const dst = validateAddress(el.destination, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        return { valid: false, error: `${locationTag} SQR S: ${src.error ?? 'Geçersiz.'}` };
+      }
+      if (!dst.valid || !dst.parsed) {
+        return { valid: false, error: `${locationTag} SQR D: ${dst.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'SQR',
+          source: src.parsed.normalized,
+          destination: dst.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
+    case 'FLOAT_MOV': {
+      if (!isNonEmptyString(el.source) || !isNonEmptyString(el.destination)) {
+        return { valid: false, error: `${locationTag}: DMOVR kaynak veya hedef adresi eksik.` };
+      }
+      const src = validateAddress(el.source, 'float_source', model);
+      const dst = validateAddress(el.destination, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        return { valid: false, error: `${locationTag} DMOVR S: ${src.error ?? 'Geçersiz.'}` };
+      }
+      if (!dst.valid || !dst.parsed) {
+        return { valid: false, error: `${locationTag} DMOVR D: ${dst.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'FLOAT_MOV',
+          source: src.parsed.normalized,
+          destination: dst.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
+    case 'FLOAT_MATH': {
+      if (typeof el.operator !== 'string' || !VALID_FLOAT_MATHS.has(el.operator as FloatMathOperator)) {
+        return { valid: false, error: `${locationTag}: Geçersiz float matematik operatörü.` };
+      }
+      if (!isNonEmptyString(el.source1) || !isNonEmptyString(el.source2) || !isNonEmptyString(el.destination)) {
+        return { valid: false, error: `${locationTag}: ${el.operator} parametreleri eksik.` };
+      }
+      const s1 = validateAddress(el.source1, 'float_source', model);
+      const s2 = validateAddress(el.source2, 'float_source', model);
+      const dst = validateAddress(el.destination, 'word_dest', model);
+      if (!s1.valid || !s1.parsed) {
+        return { valid: false, error: `${locationTag} ${el.operator} S1: ${s1.error ?? 'Geçersiz.'}` };
+      }
+      if (!s2.valid || !s2.parsed) {
+        return { valid: false, error: `${locationTag} ${el.operator} S2: ${s2.error ?? 'Geçersiz.'}` };
+      }
+      if (!dst.valid || !dst.parsed) {
+        return { valid: false, error: `${locationTag} ${el.operator} D: ${dst.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'FLOAT_MATH',
+          operator: el.operator as FloatMathOperator,
+          source1: s1.parsed.normalized,
+          source2: s2.parsed.normalized,
+          destination: dst.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
+    case 'FLOAT_UNARY': {
+      if (typeof el.operator !== 'string' || !VALID_FLOAT_UNARY.has(el.operator as FloatUnaryOperator)) {
+        return { valid: false, error: `${locationTag}: Geçersiz float tekil operatörü.` };
+      }
+      if (!isNonEmptyString(el.source) || !isNonEmptyString(el.destination)) {
+        return { valid: false, error: `${locationTag}: ${el.operator} parametreleri eksik.` };
+      }
+      const op = el.operator as FloatUnaryOperator;
+      const src = validateAddress(el.source, op === 'FLT' ? 'word_source' : 'float_source', model);
+      const dst = validateAddress(el.destination, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        return { valid: false, error: `${locationTag} ${op} S: ${src.error ?? 'Geçersiz.'}` };
+      }
+      if (!dst.valid || !dst.parsed) {
+        return { valid: false, error: `${locationTag} ${op} D: ${dst.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'FLOAT_UNARY',
+          operator: op,
+          source: src.parsed.normalized,
+          destination: dst.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
+    case 'TWR': {
+      if (!PLC_MODELS[model].hasRtc) {
+        return {
+          valid: false,
+          error: `${locationTag}: TWR komutu ${PLC_MODELS[model].label} modelinde desteklenmez (dahili RTC gerekir).`,
+        };
+      }
+      if (el.pulsed !== undefined && typeof el.pulsed !== 'boolean') {
+        return { valid: false, error: `${locationTag}: TWR pulsed alanı boolean olmalıdır.` };
+      }
+      if (!isNonEmptyString(el.source)) {
+        return { valid: false, error: `${locationTag}: TWR kaynak registerı eksik.` };
+      }
+      const src = validateAddress(el.source, 'word_dest', model);
+      if (!src.valid || !src.parsed) {
+        return { valid: false, error: `${locationTag} TWR: ${src.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'TWR',
+          pulsed: el.pulsed === true ? true : undefined,
+          source: src.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
+    case 'TZCP': {
+      if (
+        !isNonEmptyString(el.start1) ||
+        !isNonEmptyString(el.start2) ||
+        !isNonEmptyString(el.current) ||
+        !isNonEmptyString(el.destination)
+      ) {
+        return { valid: false, error: `${locationTag}: TZCP parametreleri eksik.` };
+      }
+      const s1 = validateAddress(el.start1, 'word_dest', model);
+      const s2 = validateAddress(el.start2, 'word_dest', model);
+      const cur = validateAddress(el.current, 'word_dest', model);
+      const dst = validateAddress(el.destination, 'bit_coil', model);
+      if (!s1.valid || !s1.parsed) {
+        return { valid: false, error: `${locationTag} TZCP S1: ${s1.error ?? 'Geçersiz.'}` };
+      }
+      if (!s2.valid || !s2.parsed) {
+        return { valid: false, error: `${locationTag} TZCP S2: ${s2.error ?? 'Geçersiz.'}` };
+      }
+      if (!cur.valid || !cur.parsed) {
+        return { valid: false, error: `${locationTag} TZCP S: ${cur.error ?? 'Geçersiz.'}` };
+      }
+      if (!dst.valid || !dst.parsed) {
+        return { valid: false, error: `${locationTag} TZCP D: ${dst.error ?? 'Geçersiz.'}` };
+      }
+      return {
+        valid: true,
+        element: {
+          kind: 'TZCP',
+          start1: s1.parsed.normalized,
+          start2: s2.parsed.normalized,
+          current: cur.parsed.normalized,
+          destination: dst.parsed.normalized,
+          comment: optionalComment(el.comment),
+        },
+      };
+    }
+
     default:
       return {
         valid: false,
@@ -378,12 +560,13 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
   if (typeof rawJson !== 'string') {
     return { success: false, error: 'JSON içeriği boş.' };
   }
-  if (rawJson.length > MAX_PROJECT_JSON_BYTES) {
+  const utf8Bytes = new TextEncoder().encode(rawJson).length;
+  if (utf8Bytes > MAX_PROJECT_JSON_BYTES) {
     return {
       success: false,
       error: `Proje JSON dosyası izin verilen maksimum boyutu (${Math.round(
         MAX_PROJECT_JSON_BYTES / (1024 * 1024)
-      )} MB) aşıyor.`,
+      )} MB / ${MAX_PROJECT_JSON_BYTES.toLocaleString('tr-TR')} bayt) aşıyor (dosya boyutu: ${utf8Bytes.toLocaleString('tr-TR')} bayt).`,
     };
   }
   if (!rawJson.trim()) {

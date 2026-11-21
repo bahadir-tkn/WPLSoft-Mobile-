@@ -20,7 +20,7 @@ export interface AddressValidationResult {
   ioZone?: 'onboard' | 'expansion' | 'internal' | 'special' | 'constant';
 }
 
-const VALID_PREFIXES = new Set<string>(['X', 'Y', 'M', 'T', 'C', 'D', 'K']);
+const VALID_PREFIXES = new Set<string>(['X', 'Y', 'M', 'T', 'C', 'D', 'K', 'F']);
 
 /**
  * Converts a decimal index (0..15) into Delta octal notation string ('0'..'7', '10'..'17').
@@ -146,7 +146,7 @@ export function validateAddress(
   if (!VALID_PREFIXES.has(prefix)) {
     return {
       valid: false,
-      error: `Geçersiz aygıt ön eki "${prefix}". Desteklenen ön ekler: X, Y, M, T, C, D, K.`,
+      error: `Geçersiz aygıt ön eki "${prefix}". Desteklenen ön ekler: X, Y, M, T, C, D, K, F.`,
     };
   }
 
@@ -159,6 +159,42 @@ export function validateAddress(
 
   const typedPrefix = prefix as DevicePrefix;
   const spec = PLC_MODELS[modelId];
+
+  // Handle F 32-bit IEEE-754 floating-point constants (e.g. F10.000, F-2.5)
+  if (typedPrefix === 'F') {
+    if (!/^-?\d+(\.\d+)?$/.test(rest)) {
+      return {
+        valid: false,
+        error: 'F kayan noktalı sabiti geçerli bir ondalık sayı olmalıdır (örn. F10.000 veya F-2.5).',
+      };
+    }
+    const floatValue = Number.parseFloat(rest);
+    if (!Number.isFinite(floatValue)) {
+      return {
+        valid: false,
+        error: 'F sabiti geçerli ve sonlu bir sayı olmalıdır.',
+      };
+    }
+    if (role !== 'float_source' && role !== 'any') {
+      return {
+        valid: false,
+        error: `F kayan noktalı sabiti (${trimmed}) yalnızca 32-bit float komutlarında (DMOVR, DADDR, DSUBR, DMULR, DDIVR, DESQR) kaynak olarak kullanılabilir.`,
+      };
+    }
+    return {
+      valid: true,
+      ioZone: 'constant',
+      parsed: {
+        raw: input,
+        normalized: `F${rest}`,
+        prefix: 'F',
+        numericText: rest,
+        numericValue: floatValue,
+        isOctal: false,
+        isSpecialRelay: false,
+      },
+    };
+  }
 
   // Handle K constants
   if (typedPrefix === 'K') {
@@ -189,11 +225,15 @@ export function validateAddress(
       role === 'rst_target' ||
       role === 'timer' ||
       role === 'counter' ||
-      role === 'word_dest'
+      role === 'word_dest' ||
+      role === 'float_source'
     ) {
       return {
         valid: false,
-        error: `K sabiti (${trimmed}) bu alan için kullanılamaz.`,
+        error:
+          role === 'float_source'
+            ? `32-bit kayan nokta komutlarında K sabiti yerine F sabiti (örn. F10.000) veya D register çifti kullanın.`
+            : `K sabiti (${trimmed}) bu alan için kullanılamaz.`,
       };
     }
 
@@ -253,7 +293,8 @@ export function validateAddress(
       role === 'counter' ||
       role === 'preset' ||
       role === 'word_source' ||
-      role === 'word_dest'
+      role === 'word_dest' ||
+      role === 'float_source'
     ) {
       return {
         valid: false,
@@ -295,11 +336,11 @@ export function validateAddress(
     if (!inStandardRange && !special) {
       return {
         valid: false,
-        error: `Yardımcı röle adresi ${spec.label} için M${spec.relayRange.min} – M${spec.relayRange.max} aralığında veya özel röle (M1000–M1003, M1011–M1014, M1020–M1022) olmalıdır.`,
+        error: `Yardımcı röle adresi ${spec.label} için M${spec.relayRange.min} – M${spec.relayRange.max} aralığında veya özel röle (M1000–M1022, M1067–M1068) olmalıdır.`,
       };
     }
 
-    if (special && (role === 'bit_coil' || role === 'rst_target')) {
+    if (special && special.readOnly && (role === 'bit_coil' || role === 'rst_target')) {
       return {
         valid: false,
         error: `${normalized} (${special.name}) salt okunur özel röledir; bobin olarak sürülemez.`,
@@ -311,7 +352,8 @@ export function validateAddress(
       role === 'counter' ||
       role === 'preset' ||
       role === 'word_source' ||
-      role === 'word_dest'
+      role === 'word_dest' ||
+      role === 'float_source'
     ) {
       return {
         valid: false,
@@ -342,7 +384,13 @@ export function validateAddress(
       };
     }
     const normalized = `T${decValue}`;
-    if (role === 'bit_coil' || role === 'counter' || role === 'preset' || role === 'word_dest') {
+    if (
+      role === 'bit_coil' ||
+      role === 'counter' ||
+      role === 'preset' ||
+      role === 'word_dest' ||
+      role === 'float_source'
+    ) {
       return {
         valid: false,
         error: `${normalized} bu alan için kullanılamaz.`,
@@ -371,7 +419,13 @@ export function validateAddress(
       };
     }
     const normalized = `C${decValue}`;
-    if (role === 'bit_coil' || role === 'timer' || role === 'preset' || role === 'word_dest') {
+    if (
+      role === 'bit_coil' ||
+      role === 'timer' ||
+      role === 'preset' ||
+      role === 'word_dest' ||
+      role === 'float_source'
+    ) {
       return {
         valid: false,
         error: `${normalized} bu alan için kullanılamaz.`,

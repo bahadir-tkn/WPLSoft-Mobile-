@@ -5,6 +5,18 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
 }
 
+export function detectIosDevice(
+  userAgent: string,
+  platform: string,
+  maxTouchPoints: number
+): boolean {
+  const ua = userAgent.toLowerCase();
+  if (/iphone|ipad|ipod/.test(ua)) return true;
+  // iPadOS 13+ Safari reports desktop Macintosh UA + MacIntel platform with touch points > 1
+  if (platform === 'MacIntel' && maxTouchPoints > 1) return true;
+  return false;
+}
+
 export function usePWAInstall() {
   const [deferredPrompt, setDeferredPrompt] =
     useState<BeforeInstallPromptEvent | null>(null);
@@ -17,8 +29,11 @@ export function usePWAInstall() {
   });
   const [isIOS] = useState(() => {
     if (typeof window === 'undefined') return false;
-    const ua = window.navigator.userAgent.toLowerCase();
-    return /iphone|ipad|ipod/.test(ua);
+    return detectIosDevice(
+      window.navigator.userAgent ?? '',
+      window.navigator.platform ?? '',
+      window.navigator.maxTouchPoints ?? 0
+    );
   });
 
   useEffect(() => {
@@ -32,12 +47,26 @@ export function usePWAInstall() {
       setDeferredPrompt(null);
     };
 
+    const standaloneQuery = window.matchMedia('(display-mode: standalone)');
+    const handleStandaloneChange = (e: MediaQueryListEvent) => {
+      if (e.matches) {
+        setIsInstalled(true);
+        setDeferredPrompt(null);
+      }
+    };
+
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
+    if (typeof standaloneQuery.addEventListener === 'function') {
+      standaloneQuery.addEventListener('change', handleStandaloneChange);
+    }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      if (typeof standaloneQuery.removeEventListener === 'function') {
+        standaloneQuery.removeEventListener('change', handleStandaloneChange);
+      }
     };
   }, []);
 

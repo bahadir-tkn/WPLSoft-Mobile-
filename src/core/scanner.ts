@@ -10,6 +10,7 @@ import {
   ALL_OCTAL_INPUTS,
   ALL_OCTAL_OUTPUTS,
   LADDER_COIL_COLUMN,
+  SPECIAL_RELAYS,
   SPECIAL_RELAY_ADDRESSES,
 } from './plcModels';
 import { offsetDeviceAddress } from './addressing';
@@ -18,16 +19,37 @@ import { offsetDeviceAddress } from './addressing';
  * Delta DVP-SX2 timer timebases:
  * - T0–T199: 100 ms base
  * - T200–T245: 10 ms base
- * - T246–T255: 100 ms fallback
+ * - T246–T249: 1 ms retentive high-speed base
+ * - T250–T255: 100 ms retentive base
  */
 export function getTimerTimeBaseMs(address: string): number {
   const norm = address.trim().toUpperCase();
   if (!norm.startsWith('T')) return 100;
   const num = Number.parseInt(norm.slice(1), 10);
-  if (!Number.isNaN(num) && num >= 200 && num <= 245) {
+  if (Number.isNaN(num)) return 100;
+  if (num >= 246 && num <= 249) {
+    return 1;
+  }
+  if (num >= 200 && num <= 245) {
     return 10;
   }
   return 100;
+}
+
+export function encodeFloat32Registers(value: number): [number, number] {
+  const buf = new ArrayBuffer(4);
+  const view = new DataView(buf);
+  view.setFloat32(0, value, true);
+  return [view.getInt16(0, true), view.getInt16(2, true)];
+}
+
+export function decodeFloat32Registers(low16: number, high16: number): number {
+  const buf = new ArrayBuffer(4);
+  const view = new DataView(buf);
+  view.setInt16(0, low16, true);
+  view.setInt16(2, high16, true);
+  const val = view.getFloat32(0, true);
+  return Number.isFinite(val) ? val : 0;
 }
 
 export function writeRtcRegistersFromEpoch(
@@ -85,9 +107,13 @@ export function createInitialSimState(
       M1012: false,
       M1013: false,
       M1014: false,
+      M1016: false,
+      M1017: false,
       M1020: false,
       M1021: false,
       M1022: false,
+      M1067: false,
+      M1068: false,
     },
     previousBitStates: {},
     instructionEdgeStates: {},
@@ -173,7 +199,7 @@ export function executeScanCycle(
   const isFirstScan = prevState.scanCount === 0;
 
   const nextElapsedSimMs = (prevState.elapsedSimMs ?? 0) + effectiveDeltaMs;
-  const nextRtcEpochMs = (prevState.rtcEpochMs ?? Date.now()) + effectiveDeltaMs;
+  let effectiveRtcEpochMs = (prevState.rtcEpochMs ?? Date.now()) + effectiveDeltaMs;
 
   const inputs: Record<string, boolean> = { ...prevState.inputs };
   const outputs: Record<string, boolean> = { ...prevState.outputs };
@@ -207,9 +233,13 @@ export function executeScanCycle(
       60000,
       Boolean(prevState.relays.M1014)
     ),
+    M1016: Boolean(prevState.relays.M1016),
+    M1017: Boolean(prevState.relays.M1017),
     M1020: Boolean(prevState.relays.M1020),
     M1021: Boolean(prevState.relays.M1021),
     M1022: Boolean(prevState.relays.M1022),
+    M1067: false,
+    M1068: Boolean(prevState.relays.M1068),
   };
 
   const timers: Record<string, TimerRuntime> = {};
@@ -222,7 +252,7 @@ export function executeScanCycle(
   }
   const registers: Record<string, number> = { ...prevState.registers };
   // Sync live SX2 RTC registers (D1313–D1319) every scan
-  writeRtcRegistersFromEpoch(registers, nextRtcEpochMs);
+  writeRtcRegistersFromEpoch(registers, effectiveRtcEpochMs);
 
   const prevBits = prevState.previousBitStates;
   const prevEdgeStates = prevState.instructionEdgeStates ?? {};
@@ -267,7 +297,7 @@ export function executeScanCycle(
     const prefix = addr[0];
     if (prefix === 'Y') {
       outputs[addr] = value;
-    } else if (prefix === 'M' && !SPECIAL_RELAY_ADDRESSES.has(addr)) {
+    } else if (prefix === 'M' && !SPECIAL_RELAYS[addr]?.readOnly) {
       relays[addr] = value;
     }
   };
@@ -283,6 +313,37 @@ export function executeScanCycle(
     if (prefix === 'T') return timers[op]?.currentValue ?? 0;
     if (prefix === 'C') return counters[op]?.currentValue ?? 0;
     return 0;
+  };
+
+  const readFloat32 = (rawOperand: string): number => {
+    const op = rawOperand.trim().toUpperCase();
+    if (op.startsWith('F')) {
+      const parsed = Number.parseFloat(op.slice(1));
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (op.startsWith('D')) {
+      const d1 = offsetDeviceAddress(op, 1);
+      return decodeFloat32Registers(
+        registers[op] ?? 0,
+        d1 ? (registers[d1] ?? 0) : 0
+      );
+    }
+    return 0;
+  };
+
+  const writeFloat32 = (destReg: string, value: number): void => {
+    if (!Number.isFinite(value)) {
+      relays.M1067 = true;
+      relays.M1068 = true;
+      return;
+    }
+    const [low16, high16] = encodeFloat32Registers(value);
+    const dest = destReg.trim().toUpperCase();
+    registers[dest] = low16;
+    const d1 = offsetDeviceAddress(dest, 1);
+    if (d1) {
+      registers[d1] = high16;
+    }
   };
 
   const evalContact = (contactType: ContactKind, address: string): boolean => {
@@ -307,7 +368,7 @@ export function executeScanCycle(
     const prefix = norm[0];
     if (prefix === 'Y') {
       outputs[norm] = false;
-    } else if (prefix === 'M' && !SPECIAL_RELAY_ADDRESSES.has(norm)) {
+    } else if (prefix === 'M' && !SPECIAL_RELAYS[norm]?.readOnly) {
       relays[norm] = false;
     } else if (prefix === 'T') {
       const prevT = timers[norm];
@@ -342,27 +403,29 @@ export function executeScanCycle(
     const rowCount = rung.rows.length;
     const logicCols = LADDER_COIL_COLUMN;
 
+    const evalCellConductance = (r: number, c: number): boolean => {
+      const el = rung.rows[r]?.[c]?.element;
+      if (!el) return false;
+      if (el.kind === 'HLINE') return true;
+      if (el.kind === 'CONTACT') {
+        return evalContact(el.contactType, el.address);
+      }
+      if (el.kind === 'COMPARE') {
+        return compareValues(
+          el.operator,
+          readWord(el.operandA),
+          readWord(el.operandB)
+        );
+      }
+      return false;
+    };
+
     const boundaryPower: boolean[][] = Array.from({ length: rowCount }, () =>
       Array.from({ length: logicCols + 1 }, (_, b) => b === 0)
     );
 
     const cellConducts: boolean[][] = Array.from({ length: rowCount }, (_, r) =>
-      Array.from({ length: logicCols }, (_, c) => {
-        const el = rung.rows[r]?.[c]?.element;
-        if (!el) return false;
-        if (el.kind === 'HLINE') return true;
-        if (el.kind === 'CONTACT') {
-          return evalContact(el.contactType, el.address);
-        }
-        if (el.kind === 'COMPARE') {
-          return compareValues(
-            el.operator,
-            readWord(el.operandA),
-            readWord(el.operandB)
-          );
-        }
-        return false;
-      })
+      Array.from({ length: logicCols }, (_, c) => evalCellConductance(r, c))
     );
 
     // Fixed-point electrical propagation across horizontal logic cells and vertical branchDown drops
@@ -399,8 +462,7 @@ export function executeScanCycle(
       }
     }
 
-    // Record visual power flow for cells & wires in this rung
-    for (let r = 0; r < rowCount; r += 1) {
+    const recordRowVisualPower = (r: number) => {
       for (let c = 0; c < logicCols; c += 1) {
         const cell = rung.rows[r]?.[c];
         if (!cell) continue;
@@ -423,7 +485,70 @@ export function executeScanCycle(
           energizedWires[branchWireKey(rungIndex, r, c)] = true;
         }
       }
+    };
+
+    // Record visual power flow for cells & wires in this rung
+    for (let r = 0; r < rowCount; r += 1) {
+      recordRowVisualPower(r);
     }
+
+    let lastOutputRow = -1;
+    for (let r = rowCount - 1; r >= 0; r -= 1) {
+      const k = rung.rows[r]?.[LADDER_COIL_COLUMN]?.element.kind;
+      if (k && k !== 'EMPTY' && k !== 'HLINE' && k !== 'END') {
+        lastOutputRow = r;
+        break;
+      }
+    }
+
+    const propagateDownstreamFromRow = (executedRow: number) => {
+      if (executedRow >= lastOutputRow) return;
+      for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+        for (let c = 0; c < logicCols; c += 1) {
+          cellConducts[rr][c] = evalCellConductance(rr, c);
+        }
+      }
+      let subChanged = true;
+      let subSafety = 0;
+      while (subChanged && subSafety < maxIterations) {
+        subChanged = false;
+        subSafety += 1;
+
+        for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+          for (let c = 0; c < logicCols; c += 1) {
+            if (
+              boundaryPower[rr][c] &&
+              cellConducts[rr][c] &&
+              !boundaryPower[rr][c + 1]
+            ) {
+              boundaryPower[rr][c + 1] = true;
+              subChanged = true;
+            }
+          }
+        }
+
+        // Pull power downward from frozen executedRow (or between rows > executedRow) without altering rows <= executedRow
+        for (let rr = executedRow; rr < rowCount - 1; rr += 1) {
+          for (let c = 0; c < logicCols; c += 1) {
+            if (rung.rows[rr]?.[c]?.branchDown) {
+              const b = c + 1;
+              if (boundaryPower[rr][b] && !boundaryPower[rr + 1][b]) {
+                boundaryPower[rr + 1][b] = true;
+                subChanged = true;
+              }
+              if (rr > executedRow && boundaryPower[rr + 1][b] && !boundaryPower[rr][b]) {
+                boundaryPower[rr][b] = true;
+                subChanged = true;
+              }
+            }
+          }
+        }
+      }
+
+      for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+        recordRowVisualPower(rr);
+      }
+    };
 
     // Execute outputs on column LADDER_COIL_COLUMN
     for (let r = 0; r < rowCount; r += 1) {
@@ -593,7 +718,10 @@ export function executeScanCycle(
             }
             relays.M1020 = prod === 0;
           } else if (el.operator === 'DIV') {
-            if (s2 !== 0) {
+            if (s2 === 0) {
+              relays.M1067 = true;
+              relays.M1068 = true;
+            } else {
               const quotient = Math.trunc(s1 / s2);
               const remainder = s1 % s2;
               registers[dst] = clampSigned16(quotient);
@@ -603,6 +731,71 @@ export function executeScanCycle(
               }
               relays.M1020 = quotient === 0 && remainder === 0;
             }
+          }
+        }
+      } else if (el.kind === 'SQR') {
+        if (rungPower) {
+          const val = readWord(el.source);
+          const dst = el.destination.trim().toUpperCase();
+          if (val < 0) {
+            registers[dst] = 0;
+            relays.M1067 = true;
+            relays.M1068 = true;
+          } else {
+            const root = Math.trunc(Math.sqrt(val));
+            registers[dst] = root;
+            relays.M1020 = root === 0;
+          }
+        }
+      } else if (el.kind === 'FLOAT_MOV') {
+        if (rungPower) {
+          const val = readFloat32(el.source);
+          writeFloat32(el.destination, val);
+        }
+      } else if (el.kind === 'FLOAT_MATH') {
+        if (rungPower) {
+          const v1 = readFloat32(el.source1);
+          const v2 = readFloat32(el.source2);
+          let result = 0;
+          if (el.operator === 'DADDR') {
+            result = v1 + v2;
+          } else if (el.operator === 'DSUBR') {
+            result = v1 - v2;
+          } else if (el.operator === 'DMULR') {
+            result = v1 * v2;
+          } else if (el.operator === 'DDIVR') {
+            if (v2 === 0) {
+              relays.M1067 = true;
+              relays.M1068 = true;
+              result = Number.NaN;
+            } else {
+              result = v1 / v2;
+            }
+          }
+          if (Number.isFinite(result)) {
+            writeFloat32(el.destination, result);
+            relays.M1020 = result === 0;
+          } else {
+            relays.M1067 = true;
+            relays.M1068 = true;
+          }
+        }
+      } else if (el.kind === 'FLOAT_UNARY') {
+        if (rungPower) {
+          if (el.operator === 'DESQR') {
+            const val = readFloat32(el.source);
+            if (val < 0) {
+              relays.M1067 = true;
+              relays.M1068 = true;
+            } else {
+              const root = Math.sqrt(val);
+              writeFloat32(el.destination, root);
+              relays.M1020 = root === 0;
+            }
+          } else {
+            const intVal = readWord(el.source);
+            writeFloat32(el.destination, intVal);
+            relays.M1020 = intVal === 0;
           }
         }
       } else if (el.kind === 'INCDEC') {
@@ -641,7 +834,51 @@ export function executeScanCycle(
             }
           }
         }
+      } else if (el.kind === 'TWR') {
+        const shouldExecute = el.pulsed ? isRisingRungPower : rungPower;
+        if (shouldExecute) {
+          // Delta DVP API 167 TWR S: S+0=Year(0-99), S+1=DoW, S+2=Month(1-12), S+3=Day(1-31), S+4=Hour(0-23), S+5=Min(0-59), S+6=Sec(0-59)
+          const base = el.source.trim().toUpperCase();
+          const readOffset = (k: number, fallback: number) => {
+            const addr = offsetDeviceAddress(base, k);
+            return addr ? (registers[addr] ?? fallback) : fallback;
+          };
+          const yr = Math.max(0, Math.min(99, Math.trunc(readOffset(0, 24))));
+          const mo = Math.max(1, Math.min(12, Math.trunc(readOffset(2, 1))));
+          const day = Math.max(1, Math.min(31, Math.trunc(readOffset(3, 1))));
+          const hr = Math.max(0, Math.min(23, Math.trunc(readOffset(4, 0))));
+          const min = Math.max(0, Math.min(59, Math.trunc(readOffset(5, 0))));
+          const sec = Math.max(0, Math.min(59, Math.trunc(readOffset(6, 0))));
+          const newDate = new Date(2000 + yr, mo - 1, day, hr, min, sec, 0);
+          if (Number.isFinite(newDate.getTime())) {
+            effectiveRtcEpochMs = newDate.getTime();
+            writeRtcRegistersFromEpoch(registers, effectiveRtcEpochMs);
+          }
+        }
+      } else if (el.kind === 'TZCP') {
+        if (rungPower) {
+          const readTimeSecs = (baseReg: string) => {
+            const base = baseReg.trim().toUpperCase();
+            const r1 = offsetDeviceAddress(base, 1);
+            const r2 = offsetDeviceAddress(base, 2);
+            const h = registers[base] ?? 0;
+            const m = r1 ? (registers[r1] ?? 0) : 0;
+            const s = r2 ? (registers[r2] ?? 0) : 0;
+            return h * 3600 + m * 60 + s;
+          };
+          const t1 = readTimeSecs(el.start1);
+          const t2 = readTimeSecs(el.start2);
+          const tc = readTimeSecs(el.current);
+          const d0 = el.destination.trim().toUpperCase();
+          const d1 = offsetDeviceAddress(d0, 1);
+          const d2 = offsetDeviceAddress(d0, 2);
+          writeBit(d0, tc < t1);
+          if (d1) writeBit(d1, tc >= t1 && tc <= t2);
+          if (d2) writeBit(d2, tc > t2);
+        }
       }
+
+      propagateDownstreamFromRow(r);
     }
   }
 
@@ -656,7 +893,7 @@ export function executeScanCycle(
     scanCount: prevState.scanCount + 1,
     scanTimeMs: safeDeltaMs > 0 ? Math.round(safeDeltaMs) : prevState.scanTimeMs,
     elapsedSimMs: nextElapsedSimMs,
-    rtcEpochMs: nextRtcEpochMs,
+    rtcEpochMs: effectiveRtcEpochMs,
     inputs,
     outputs,
     relays,
@@ -739,6 +976,44 @@ export function collectReferencedDevices(program: LadderProgram): {
           registerAddr(el.target);
         } else if (el.kind === 'TRD') {
           registerAddr(el.destination);
+        } else if (el.kind === 'SQR') {
+          registerAddr(el.source);
+          registerAddr(el.destination);
+        } else if (el.kind === 'FLOAT_MOV') {
+          registerAddr(el.source);
+          registerAddr(el.destination);
+          const d1 = offsetDeviceAddress(el.destination, 1);
+          if (d1) registerAddr(d1);
+        } else if (el.kind === 'FLOAT_MATH') {
+          registerAddr(el.source1);
+          const s1Next = offsetDeviceAddress(el.source1, 1);
+          if (s1Next) registerAddr(s1Next);
+          registerAddr(el.source2);
+          const s2Next = offsetDeviceAddress(el.source2, 1);
+          if (s2Next) registerAddr(s2Next);
+          registerAddr(el.destination);
+          const d1 = offsetDeviceAddress(el.destination, 1);
+          if (d1) registerAddr(d1);
+        } else if (el.kind === 'FLOAT_UNARY') {
+          registerAddr(el.source);
+          if (el.operator === 'DESQR') {
+            const s1 = offsetDeviceAddress(el.source, 1);
+            if (s1) registerAddr(s1);
+          }
+          registerAddr(el.destination);
+          const d1 = offsetDeviceAddress(el.destination, 1);
+          if (d1) registerAddr(d1);
+        } else if (el.kind === 'TWR') {
+          registerAddr(el.source);
+        } else if (el.kind === 'TZCP') {
+          registerAddr(el.start1);
+          registerAddr(el.start2);
+          registerAddr(el.current);
+          registerAddr(el.destination);
+          const d1 = offsetDeviceAddress(el.destination, 1);
+          const d2 = offsetDeviceAddress(el.destination, 2);
+          if (d1) registerAddr(d1);
+          if (d2) registerAddr(d2);
         }
       }
     }

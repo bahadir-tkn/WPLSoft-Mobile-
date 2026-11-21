@@ -42,8 +42,14 @@ export type OutputAstElement = Extract<
   | { kind: 'ZRST' }
   | { kind: 'CMP' }
   | { kind: 'MATH' }
+  | { kind: 'SQR' }
+  | { kind: 'FLOAT_MOV' }
+  | { kind: 'FLOAT_MATH' }
+  | { kind: 'FLOAT_UNARY' }
   | { kind: 'INCDEC' }
   | { kind: 'TRD' }
+  | { kind: 'TWR' }
+  | { kind: 'TZCP' }
 >;
 
 export interface OutputGroupAst {
@@ -120,8 +126,14 @@ export function isOutputElement(el: CellElement): el is OutputAstElement {
     el.kind === 'ZRST' ||
     el.kind === 'CMP' ||
     el.kind === 'MATH' ||
+    el.kind === 'SQR' ||
+    el.kind === 'FLOAT_MOV' ||
+    el.kind === 'FLOAT_MATH' ||
+    el.kind === 'FLOAT_UNARY' ||
     el.kind === 'INCDEC' ||
-    el.kind === 'TRD'
+    el.kind === 'TRD' ||
+    el.kind === 'TWR' ||
+    el.kind === 'TZCP'
   );
 }
 

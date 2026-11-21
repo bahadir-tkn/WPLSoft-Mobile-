@@ -1,6 +1,6 @@
 export type PlcModelId = 'DVP-SX2' | 'DVP-14SS2' | 'DVP-12SA2';
 
-export type DevicePrefix = 'X' | 'Y' | 'M' | 'T' | 'C' | 'D' | 'K';
+export type DevicePrefix = 'X' | 'Y' | 'M' | 'T' | 'C' | 'D' | 'K' | 'F';
 
 export type AddressRole =
   | 'any'
@@ -11,7 +11,8 @@ export type AddressRole =
   | 'counter'
   | 'preset'
   | 'word_source'
-  | 'word_dest';
+  | 'word_dest'
+  | 'float_source';
 
 export type CompareOperator = '=' | '>' | '<' | '>=' | '<=' | '<>';
 
@@ -20,6 +21,10 @@ export type ContactKind = 'NO' | 'NC' | 'RISING' | 'FALLING';
 export type CoilKind = 'OUT' | 'SET' | 'RST';
 
 export type MathOperator = 'ADD' | 'SUB' | 'MUL' | 'DIV';
+
+export type FloatMathOperator = 'DADDR' | 'DSUBR' | 'DMULR' | 'DDIVR';
+
+export type FloatUnaryOperator = 'DESQR' | 'FLT';
 
 export type IncDecOperator = 'INC' | 'INCP' | 'DEC' | 'DECP';
 
@@ -137,6 +142,33 @@ export type CellElement =
       comment?: string;
     }
   | {
+      kind: 'SQR';
+      source: string;
+      destination: string;
+      comment?: string;
+    }
+  | {
+      kind: 'FLOAT_MOV';
+      source: string;
+      destination: string;
+      comment?: string;
+    }
+  | {
+      kind: 'FLOAT_MATH';
+      operator: FloatMathOperator;
+      source1: string;
+      source2: string;
+      destination: string;
+      comment?: string;
+    }
+  | {
+      kind: 'FLOAT_UNARY';
+      operator: FloatUnaryOperator;
+      source: string;
+      destination: string;
+      comment?: string;
+    }
+  | {
       kind: 'INCDEC';
       operator: IncDecOperator;
       target: string;
@@ -144,6 +176,20 @@ export type CellElement =
     }
   | {
       kind: 'TRD';
+      destination: string;
+      comment?: string;
+    }
+  | {
+      kind: 'TWR';
+      pulsed?: boolean;
+      source: string;
+      comment?: string;
+    }
+  | {
+      kind: 'TZCP';
+      start1: string;
+      start2: string;
+      current: string;
       destination: string;
       comment?: string;
     }
@@ -226,11 +272,22 @@ export type IlOpcode =
   | 'SUB'
   | 'MUL'
   | 'DIV'
+  | 'SQR'
+  | 'DMOVR'
+  | 'DADDR'
+  | 'DSUBR'
+  | 'DMULR'
+  | 'DDIVR'
+  | 'DESQR'
+  | 'FLT'
   | 'INC'
   | 'INCP'
   | 'DEC'
   | 'DECP'
   | 'TRD'
+  | 'TWR'
+  | 'TWRP'
+  | 'TZCP'
   | 'END';
 
 export interface IlInstruction {

@@ -155,8 +155,15 @@ export function analyzeProgramWiring(
             break;
           }
           case 'MATH':
+          case 'FLOAT_MATH':
             inspectAddress(el.source1);
             inspectAddress(el.source2);
+            inspectAddress(el.destination);
+            break;
+          case 'SQR':
+          case 'FLOAT_MOV':
+          case 'FLOAT_UNARY':
+            inspectAddress(el.source);
             inspectAddress(el.destination);
             break;
           case 'INCDEC':
@@ -165,6 +172,20 @@ export function analyzeProgramWiring(
           case 'TRD':
             inspectAddress(el.destination);
             break;
+          case 'TWR':
+            inspectAddress(el.source);
+            break;
+          case 'TZCP': {
+            inspectAddress(el.start1);
+            inspectAddress(el.start2);
+            inspectAddress(el.current);
+            inspectAddress(el.destination);
+            const d1 = offsetDeviceAddress(el.destination, 1);
+            const d2 = offsetDeviceAddress(el.destination, 2);
+            if (d1) inspectAddress(d1);
+            if (d2) inspectAddress(d2);
+            break;
+          }
           default:
             break;
         }

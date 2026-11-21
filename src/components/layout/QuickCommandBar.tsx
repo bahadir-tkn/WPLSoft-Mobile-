@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
-import { CornerDownLeft, Terminal } from 'lucide-react';
+import { CornerDownLeft, Terminal, X } from 'lucide-react';
 
 interface QuickCommandBarProps {
   onExecuteCommand: (command: string) => { ok: boolean; error?: string };
+  compact?: boolean;
+  onClose?: () => void;
 }
 
 export const QuickCommandBar: React.FC<QuickCommandBarProps> = ({
   onExecuteCommand,
+  compact = false,
+  onClose,
 }) => {
   const [command, setCommand] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -25,14 +29,18 @@ export const QuickCommandBar: React.FC<QuickCommandBarProps> = ({
   };
 
   return (
-    <div className="shrink-0 bg-[#F8FAFC] border-b border-[#CBD2DC] px-2.5 sm:px-3.5 py-1.5">
+    <div
+      className={`shrink-0 bg-[#F8FAFC] border-b border-[#CBD2DC] px-2.5 sm:px-3.5 ${
+        compact ? 'py-1' : 'py-1.5'
+      }`}
+    >
       <form
         onSubmit={handleSubmit}
-        className="flex items-center gap-2 max-w-[1440px]"
+        className="flex items-center gap-1.5 sm:gap-2 max-w-[1440px]"
       >
         <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#475569] shrink-0">
           <Terminal className="w-3.5 h-3.5 text-[#0B4EA2]" aria-hidden="true" />
-          <label htmlFor="quick-cmd-input" className="hidden sm:inline">
+          <label htmlFor="quick-cmd-input" className="hidden md:inline">
             Komut Girişi:
           </label>
         </div>
@@ -48,8 +56,11 @@ export const QuickCommandBar: React.FC<QuickCommandBarProps> = ({
           }}
           placeholder="Örn: LD X0, ANI X1, OR Y0, OUT Y0, TMR T0 K50, MOV K10 D0"
           autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="characters"
+          enterKeyHint="done"
           spellCheck={false}
-          className={`flex-1 min-w-0 h-7 px-2.5 rounded border font-mono text-xs bg-white text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:ring-2 ${
+          className={`flex-1 min-w-0 h-8 sm:h-7 px-2.5 rounded border font-mono text-xs bg-white text-[#0F172A] placeholder:text-[#94A3B8] focus:outline-none focus:ring-2 ${
             error
               ? 'border-[#DC2626] focus:ring-[#DC2626]/25'
               : 'border-[#B8C2D1] focus:border-[#0B4EA2] focus:ring-[#0B4EA2]/20'
@@ -65,6 +76,17 @@ export const QuickCommandBar: React.FC<QuickCommandBarProps> = ({
           <CornerDownLeft className="w-3.5 h-3.5" aria-hidden="true" />
           <span>Uygula</span>
         </button>
+
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Hızlı komut satırını gizle"
+            className="h-7 w-7 rounded border border-[#CBD2DC] bg-white text-[#475569] hover:bg-[#EDF2F8] flex items-center justify-center shrink-0 cursor-pointer"
+          >
+            <X className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        )}
       </form>
 
       {error && (

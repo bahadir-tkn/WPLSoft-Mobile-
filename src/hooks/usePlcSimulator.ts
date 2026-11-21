@@ -7,7 +7,7 @@ import type {
 } from '../types/plc';
 import {
   ALL_OCTAL_INPUTS,
-  SPECIAL_RELAY_ADDRESSES,
+  SPECIAL_RELAYS,
 } from '../core/plcModels';
 import {
   createInitialSimState,
@@ -68,29 +68,58 @@ export function usePlcSimulator(
     [onNotify]
   );
 
-  // Real-time 20ms scan cycle using performance.now() delta-time for drift-free 100ms timers & RTC
+  // Real-time 20ms scan cycle using performance.now() delta-time for drift-free 100ms timers & RTC.
+  // Automatically pauses ticks when mobile tab/PWA is backgrounded (iOS/Android battery protection).
   useEffect(() => {
     if (!isOnline || !simState.running) return;
 
-    lastTickRef.current = performance.now();
-    const timerId = window.setInterval(() => {
-      const now = performance.now();
-      const rawDelta = now - lastTickRef.current;
-      lastTickRef.current = now;
-      const safeDelta = Math.min(MAX_DELTA_MS, Math.max(0, rawDelta));
+    let timerId: number | null = null;
 
-      setSimState((prev) => {
-        if (!prev.running) return prev;
-        return executeScanCycle(
-          programRef.current,
-          prev,
-          safeDelta,
-          speedRef.current
-        );
-      });
-    }, SCAN_INTERVAL_MS);
+    const startLoop = () => {
+      if (timerId !== null || document.hidden) return;
+      lastTickRef.current = performance.now();
+      timerId = window.setInterval(() => {
+        if (document.hidden) return;
+        const now = performance.now();
+        const rawDelta = now - lastTickRef.current;
+        lastTickRef.current = now;
+        const safeDelta = Math.min(MAX_DELTA_MS, Math.max(0, rawDelta));
 
-    return () => window.clearInterval(timerId);
+        setSimState((prev) => {
+          if (!prev.running) return prev;
+          return executeScanCycle(
+            programRef.current,
+            prev,
+            safeDelta,
+            speedRef.current
+          );
+        });
+      }, SCAN_INTERVAL_MS);
+    };
+
+    const stopLoop = () => {
+      if (timerId !== null) {
+        window.clearInterval(timerId);
+        timerId = null;
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        stopLoop();
+      } else {
+        lastTickRef.current = performance.now();
+        startLoop();
+      }
+    };
+
+    startLoop();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopLoop();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, [isOnline, simState.running]);
 
   const enterOnline = useCallback(
@@ -214,7 +243,7 @@ export function usePlcSimulator(
 
   const setRelayBit = useCallback((address: string, value: boolean) => {
     const norm = address.trim().toUpperCase();
-    if (SPECIAL_RELAY_ADDRESSES.has(norm)) return;
+    if (SPECIAL_RELAYS[norm]?.readOnly) return;
     setSimState((prev) => ({
       ...prev,
       relays: {
@@ -226,7 +255,7 @@ export function usePlcSimulator(
 
   const toggleRelayBit = useCallback((address: string) => {
     const norm = address.trim().toUpperCase();
-    if (SPECIAL_RELAY_ADDRESSES.has(norm)) return;
+    if (SPECIAL_RELAYS[norm]?.readOnly) return;
     setSimState((prev) => ({
       ...prev,
       relays: {
@@ -245,7 +274,7 @@ export function usePlcSimulator(
       const norm = address.trim().toUpperCase();
       const prefix = norm[0];
       if (prefix !== 'X' && prefix !== 'M') return;
-      if (prefix === 'M' && SPECIAL_RELAY_ADDRESSES.has(norm)) return;
+      if (prefix === 'M' && SPECIAL_RELAYS[norm]?.readOnly) return;
 
       const existingTimer = pulseTimersRef.current.get(norm);
       if (existingTimer !== undefined) {
