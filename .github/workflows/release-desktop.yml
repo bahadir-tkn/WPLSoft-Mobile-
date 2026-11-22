@@ -32,7 +32,7 @@ jobs:
           node-version: 22
 
       - name: Bağımlılıkları yükle
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: Birim testlerini çalıştır
         run: npm test
@@ -43,7 +43,7 @@ jobs:
           $env:VITE_BASE_PATH = "./"
           npm run build
           if (Test-Path "WPLSoft-Web-Build.zip") { Remove-Item "WPLSoft-Web-Build.zip" }
-          Compress-Archive -Path "dist\*" -DestinationPath "WPLSoft-Web-Build.zip"
+          Compress-Archive -Path "dist\*" -DestinationPath "WPLSoft-Web-Build.zip" -Force
 
       - name: Masaüstü (Electron) arayüzünü derle
         shell: bash
@@ -58,7 +58,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: |
-          npm install
+          npm install --no-audit --no-fund --legacy-peer-deps
           npm run dist:win
 
       - name: Sürüm etiketini belirle
@@ -67,14 +67,15 @@ jobs:
         run: |
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-            echo "title=WPLSoft — ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "title=WPLSoft ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
           else
             echo "tag=latest" >> "$GITHUB_OUTPUT"
-            echo "title=WPLSoft — Son Sürüm (Otomatik)" >> "$GITHUB_OUTPUT"
+            echo "title=WPLSoft — Güncel Sürüm" >> "$GITHUB_OUTPUT"
           fi
 
       - name: latest etiketini güncel commit'e taşı
         if: steps.meta.outputs.tag == 'latest'
+        continue-on-error: true
         shell: bash
         run: |
           git config user.name "github-actions[bot]"
@@ -89,14 +90,10 @@ jobs:
           name: ${{ steps.meta.outputs.title }}
           make_latest: true
           body: |
-            ## WPLSoft — Delta DVP PLC İndirilebilir Sürüm
-
-            Her kod güncellemesinde otomatik olarak derlenir.
-
             ### İndirme Seçenekleri
-            - **`WPLSoft-Windows-Setup.exe`** — Klasik Windows kurulum sihirbazı (Başlat menüsü ve Masaüstü kısayolu oluşturur).
-            - **`WPLSoft-Windows-Portable.exe`** — Kurulum gerektirmez, indirdiğiniz gibi çift tıklayıp çalıştırabilirsiniz.
-            - **`WPLSoft-Web-Build.zip`** — Kendi sunucunuzda barındırmak için statik web dosyaları.
+            - **WPLSoft-Windows-Setup.exe** — Bilgisayara normal program gibi kurar (masaüstü kısayolu ekler).
+            - **WPLSoft-Windows-Portable.exe** — Kurulum gerekmez, indirip doğrudan çalıştırabilirsiniz.
+            - **WPLSoft-Web-Build.zip** — Çevrimdışı web dosyaları paketi.
           files: |
             electron/release/WPLSoft-Windows-Setup.exe
             electron/release/WPLSoft-Windows-Portable.exe

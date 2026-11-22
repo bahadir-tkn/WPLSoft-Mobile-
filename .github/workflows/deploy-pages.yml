@@ -27,7 +27,7 @@ jobs:
           node-version: 22
 
       - name: Bağımlılıkları yükle
-        run: npm install
+        run: npm install --legacy-peer-deps
 
       - name: GitHub Pages yapılandır
         id: pages
