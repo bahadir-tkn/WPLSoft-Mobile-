@@ -437,10 +437,7 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
 
       case 'TMR':
       case 'CNT':
-        return renderFunctionBox(
-          `${element.kind} ${element.address} ${element.preset}`,
-          `${element.address} · ${element.preset}`
-        );
+        return renderFunctionBox(element.kind, `${element.address} ${element.preset}`);
 
       case 'MOV':
       case 'SQR':
@@ -454,10 +451,7 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
               : element.kind === 'FLOAT_MOV'
                 ? 'DMOVR'
                 : element.operator;
-        return renderFunctionBox(
-          `${opcode} ${element.source} ${element.destination}`,
-          `${element.source} → ${element.destination}`
-        );
+        return renderFunctionBox(opcode, `${element.source} → ${element.destination}`);
       }
 
       case 'ALT':
@@ -480,14 +474,11 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
             : element.kind === 'TWR'
               ? element.source
               : element.target;
-        return renderFunctionBox(`${opcode} ${targetText}`, `${opcode} · ${targetText}`);
+        return renderFunctionBox(opcode, targetText);
       }
 
       case 'ZRST':
-        return renderFunctionBox(
-          `ZRST ${element.start} ${element.end}`,
-          `${element.start} .. ${element.end}`
-        );
+        return renderFunctionBox('ZRST', `${element.start} .. ${element.end}`);
 
       case 'CMP':
       case 'MATH':

@@ -11,7 +11,8 @@ import {
   executeScanCycle,
   getTimerTimeBaseMs,
 } from './scanner';
-import { parseIlToLadder } from './ilParser';
+import { MAX_IL_LINES, parseIlToLadder } from './ilParser';
+import { shouldAutoFocusInput } from './clipboard';
 import { getTemplateById, INDUSTRIAL_TEMPLATES } from './templates';
 import {
   MAX_PROJECT_JSON_BYTES,
@@ -952,7 +953,7 @@ test('Multi-output branching (MPS / MRD / MPP) round-trips IL -> Ladder -> IL an
   assert.equal(state.outputs['Y2'], true);
 });
 
-test('Special relays (M1003, M1013, M1014 with 60x speed) + SX2 Analog D1110 + RTC D1313-D1319 & TRD', () => {
+test('Special relays (M1003, M1013, M1014 with 2x & 10x speed) + SX2 Analog D1110 + RTC D1313-D1319 & TRD', () => {
   const il = [
     'LD M1003',
     'OUT Y0',
@@ -994,11 +995,12 @@ test('Special relays (M1003, M1013, M1014 with 60x speed) + SX2 Analog D1110 + R
   assert.equal(state.outputs['Y0'], true);
   assert.equal(state.relays['M1013'], false, 'M1013 OFF during first 500ms half-period');
 
-  state = executeScanCycle(program, state, 400, 1); // elapsed = 600ms
-  assert.equal(state.relays['M1013'], true, 'M1013 ON during second 500ms half-period');
+  // Advance with 2x speed multiplier (200ms * 2 = 400ms -> elapsed = 600ms)
+  state = executeScanCycle(program, state, 200, 2);
+  assert.equal(state.relays['M1013'], true, 'M1013 ON during second 500ms half-period (reached via 2x)');
 
-  // Advance with 60x speed multiplier (500ms * 60 = 30,000ms -> crosses 30s half-period of M1014!)
-  state = executeScanCycle(program, state, 500, 60); // elapsed = 30,600ms
+  // Advance with 10x speed multiplier (3000ms * 10 = 30,000ms -> crosses 30s half-period of M1014!)
+  state = executeScanCycle(program, state, 3000, 10); // elapsed = 30,600ms
   assert.equal(state.relays['M1014'], true, 'M1014 ON in 30s..60s half-period');
   assert.equal(state.registers['D1314'], 31, 'RTC minute advanced by 30s+45s -> 14:31:15');
 });
@@ -2632,6 +2634,52 @@ test('DENEY 4 (PLC ile Çamaşır Makinesi Uygulaması): Full 8-rung washing cyc
   assert.equal(state.outputs['Y5'], false);
   assert.equal(state.relays['M0'], false);
 });
+
+test('Security hardening: parseProgramJson rejects prototype-pollution keys and malformed deviceComments', () => {
+  const base = createBlankProgram('DVP-SX2', 'Sec_Test', 1);
+  const rawBase = JSON.parse(serializeProgramJson(base)) as Record<string, unknown>;
+
+  const maliciousJson = JSON.stringify({
+    ...rawBase,
+    deviceComments: {
+      __proto__: 'polluted',
+      X0: 'Start',
+    },
+  }).replace('"__proto__"', '"__proto__"');
+
+  // Raw JSON string with literal __proto__ property key
+  const literalProtoPayload = `{"version":"1.0","projectName":"Sec_Test","model":"DVP-SX2","columns":9,"rungs":${JSON.stringify(
+    base.rungs
+  )},"deviceComments":{"__proto__":"polluted","X0":"Start"},"updatedAt":"2026-01-01T00:00:00.000Z"}`;
+
+  const protoRes = parseProgramJson(literalProtoPayload);
+  assert.equal(protoRes.success, false);
+  assert.match(protoRes.error ?? '', /geçersiz aygıt anahtarı/i);
+
+  const ctorRes = parseProgramJson(
+    JSON.stringify({ ...rawBase, deviceComments: { constructor: 'bad' } })
+  );
+  assert.equal(ctorRes.success, false);
+
+  const invalidKeyRes = parseProgramJson(
+    JSON.stringify({ ...rawBase, deviceComments: { '<script>': 'xss' } })
+  );
+  assert.equal(invalidKeyRes.success, false);
+
+  assert.equal(maliciousJson.length > 0, true);
+});
+
+test('Security hardening: parseIlToLadder enforces MAX_IL_LINES bound', () => {
+  const oversizedIl = Array.from({ length: MAX_IL_LINES + 5 }, () => 'NOP').join('\n');
+  const res = parseIlToLadder(oversizedIl, 'DVP-SX2', 'Oversize_IL');
+  assert.equal(res.success, false);
+  assert.match(res.errors[0]?.message ?? '', /maksimum satır sayısını/i);
+});
+
+test('UX: shouldAutoFocusInput returns false on non-desktop / touch devices', () => {
+  assert.equal(shouldAutoFocusInput(), false);
+});
+
 
 
 

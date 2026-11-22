@@ -649,7 +649,7 @@ export const INDUSTRIAL_TEMPLATES: IndustrialTemplateMeta[] = [
     subtitle: 'ALT Flip-Flop başlat/durdur, 80sn TMR ve tek bobinli 1Hz yeşil flaşör',
     difficulty: 'Orta',
     description:
-      'LDP X0 -> ALT M0 ile sistem tek butonla açılır/kapanır. T0 (K800 = 80sn) boyunca 0–30sn Kırmızı (Y0), 30–35sn Sarı (Y1), 35–75sn sabit Yeşil + 75–80sn M1013 (1Hz) flaşörlü Yeşil tek bobinde (OUT Y2, çift bobin hatasız) sürülür; 80sn sonunda RST T0 ile periyot yenilenir. 10x/60x hızla hızlıca test edilebilir.',
+      'LDP X0 -> ALT M0 ile sistem tek butonla açılır/kapanır. T0 (K800 = 80sn) boyunca 0–30sn Kırmızı (Y0), 30–35sn Sarı (Y1), 35–75sn sabit Yeşil + 75–80sn M1013 (1Hz) flaşörlü Yeşil tek bobinde (OUT Y2, çift bobin hatasız) sürülür; 80sn sonunda RST T0 ile periyot yenilenir. 2x/10x hızla hızlıca test edilebilir.',
     ioSummary: [
       { address: 'X0 / M0', role: 'Tek Buton Başlat-Dur (ALT)' },
       { address: 'T0 (K800)', role: '80 sn Periyot Zamanlayıcı' },

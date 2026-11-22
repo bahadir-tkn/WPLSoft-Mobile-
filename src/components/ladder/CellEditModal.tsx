@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Trash2, X, XCircle } from 'lucide-react';
-import { shouldAutoFocusInput } from '../../core/clipboard';
 import type {
   AddressRole,
   CellElement,
@@ -1197,7 +1196,6 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
               <input
                 id="cell-primary-input"
                 type="text"
-                autoFocus={shouldAutoFocusInput()}
                 autoComplete="off"
                 autoCorrect="off"
                 autoCapitalize="characters"

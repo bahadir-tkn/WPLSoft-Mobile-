@@ -28,7 +28,7 @@ export type FloatUnaryOperator = 'DESQR' | 'FLT';
 
 export type IncDecOperator = 'INC' | 'INCP' | 'DEC' | 'DECP';
 
-export type SimSpeedMultiplier = 1 | 10 | 60;
+export type SimSpeedMultiplier = 1 | 2 | 10;
 
 export type FunctionToolId =
   | 'F1'

@@ -31,10 +31,27 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
     },
   });
 
-  mainWindow.loadFile(path.join(__dirname, 'web-dist', 'index.html'));
+  const bundledEntry = path.resolve(__dirname, 'web-dist', 'index.html');
+  mainWindow.loadFile(bundledEntry);
+
+  mainWindow.webContents.session.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+
+  mainWindow.webContents.on('will-navigate', (event, targetUrl) => {
+    const expectedUrlPrefix = new URL(`file://${path.dirname(bundledEntry)}/`).href;
+    if (!targetUrl.startsWith(expectedUrlPrefix)) {
+      event.preventDefault();
+      if (/^https?:\/\//i.test(targetUrl)) {
+        shell.openExternal(targetUrl);
+      }
+    }
+  });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) {

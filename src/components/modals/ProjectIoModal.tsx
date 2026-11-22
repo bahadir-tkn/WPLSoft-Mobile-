@@ -18,7 +18,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import type { CompileResult, LadderProgram } from '../../types/plc';
-import { parseIlToLadder, type IlParseError } from '../../core/ilParser';
+import { MAX_IL_INPUT_BYTES, parseIlToLadder, type IlParseError } from '../../core/ilParser';
 import { copyTextToClipboard } from '../../core/clipboard';
 import {
   clearDraftStorage,
@@ -221,6 +221,19 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   const handleLoadIlFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.size > MAX_IL_INPUT_BYTES) {
+      setIlErrors([
+        {
+          lineNumber: 1,
+          rawLine: '',
+          message: `Seçilen IL/TXT dosyası izin verilen maksimum boyutu (${Math.round(
+            MAX_IL_INPUT_BYTES / 1024
+          )} KB) aşıyor.`,
+        },
+      ]);
+      e.target.value = '';
+      return;
+    }
     try {
       const text = await file.text();
       setIlDraft(text);

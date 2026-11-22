@@ -15,6 +15,9 @@ import { validateAddress, validateZrstRange } from './addressing';
 import { createBlankProgram, createEmptyCell, createEmptyRow, createEndRung } from './gridFactory';
 import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModels';
 
+export const MAX_IL_INPUT_BYTES = 512 * 1024; // 512 KB hard cap
+export const MAX_IL_LINES = 5000;
+
 export interface IlParseError {
   lineNumber: number;
   rawLine: string;
@@ -483,7 +486,46 @@ export function parseIlToLadder(
   projectName = 'IL_Ice_Aktarim',
   existingComments: Record<string, string> = {}
 ): IlParseResult {
+  if (typeof rawIlText !== 'string') {
+    return {
+      success: false,
+      errors: [{ lineNumber: 1, rawLine: '', message: 'IL giriş metni geçersiz.' }],
+      warnings: [],
+      parsedRungCount: 0,
+    };
+  }
+  const utf8Bytes = new TextEncoder().encode(rawIlText).length;
+  if (utf8Bytes > MAX_IL_INPUT_BYTES) {
+    return {
+      success: false,
+      errors: [
+        {
+          lineNumber: 1,
+          rawLine: '',
+          message: `IL kodu izin verilen maksimum boyutu (${Math.round(
+            MAX_IL_INPUT_BYTES / 1024
+          )} KB) aşıyor.`,
+        },
+      ],
+      warnings: [],
+      parsedRungCount: 0,
+    };
+  }
   const lines = rawIlText.split(/\r?\n/);
+  if (lines.length > MAX_IL_LINES) {
+    return {
+      success: false,
+      errors: [
+        {
+          lineNumber: 1,
+          rawLine: '',
+          message: `IL kodu izin verilen maksimum satır sayısını (${lines.length} > ${MAX_IL_LINES}) aşıyor.`,
+        },
+      ],
+      warnings: [],
+      parsedRungCount: 0,
+    };
+  }
   const errors: IlParseError[] = [];
   const warnings: string[] = [];
 

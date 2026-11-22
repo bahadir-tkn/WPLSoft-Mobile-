@@ -53,12 +53,21 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * Returns true on desktop/trackpad environments with a fine pointer (mouse)
+ * Returns true only on non-touch desktop/trackpad environments with a fine pointer
  * where automatic input focus improves keyboard speed without triggering
- * an intrusive mobile virtual keyboard on iOS / Android.
+ * an intrusive virtual keyboard on phones or Android/iPad tablets.
  */
 export function shouldAutoFocusInput(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+  if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) {
+    return false;
+  }
+  if (
+    window.matchMedia('(pointer: coarse)').matches ||
+    window.matchMedia('(any-pointer: coarse)').matches
+  ) {
     return false;
   }
   return window.matchMedia('(hover: hover) and (pointer: fine)').matches;

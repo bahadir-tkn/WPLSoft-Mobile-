@@ -24,6 +24,10 @@ export const SUPPORTED_SCHEMA_VERSION = '1.0' as const;
 export const MAX_PROJECT_JSON_BYTES = 2 * 1024 * 1024; // 2 MB hard cap
 export const MAX_PROJECT_RUNGS = 500;
 export const MAX_ROWS_PER_RUNG = 32;
+export const MAX_DEVICE_COMMENTS = 2000;
+export const MAX_SAVED_ITEMS = 50;
+const FORBIDDEN_RECORD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const VALID_COMMENT_KEY_RE = /^[XYMTCD]\d{1,5}$/;
 
 const VALID_MODELS = new Set<PlcModelId>(['DVP-SX2', 'DVP-14SS2', 'DVP-12SA2']);
 const VALID_CONTACTS = new Set<ContactKind>(['NO', 'NC', 'RISING', 'FALLING']);
@@ -87,7 +91,9 @@ function isNonEmptyString(value: unknown): value is string {
 }
 
 function optionalComment(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+  return typeof value === 'string' && value.trim().length > 0
+    ? value.trim().slice(0, 64)
+    : undefined;
 }
 
 function validateCellElement(
@@ -763,8 +769,11 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
       }
 
       normalizedRungs.push({
-        id: typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `rung-json-${i}`,
-        comment: typeof r.comment === 'string' && r.comment.trim() ? r.comment.trim() : undefined,
+        id: typeof r.id === 'string' && r.id.trim() ? r.id.trim().slice(0, 64) : `rung-json-${i}`,
+        comment:
+          typeof r.comment === 'string' && r.comment.trim()
+            ? r.comment.trim().slice(0, 200)
+            : undefined,
         isEnd: isEnd || undefined,
         rows: normalizedRows,
       });
@@ -789,15 +798,38 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
           error: '"deviceComments" alanı anahtar-değer nesnesi olmalıdır.',
         };
       }
-      for (const [k, v] of Object.entries(obj.deviceComments as Record<string, unknown>)) {
+      const commentEntries = Object.entries(obj.deviceComments as Record<string, unknown>);
+      if (commentEntries.length > MAX_DEVICE_COMMENTS) {
+        return {
+          success: false,
+          error: `"deviceComments" alanında izin verilenden fazla kayıt bulunuyor (${commentEntries.length} > ${MAX_DEVICE_COMMENTS}).`,
+        };
+      }
+      for (const [k, v] of commentEntries) {
+        const normalizedKey = k.trim().toUpperCase();
+        if (
+          FORBIDDEN_RECORD_KEYS.has(k) ||
+          FORBIDDEN_RECORD_KEYS.has(normalizedKey) ||
+          !VALID_COMMENT_KEY_RE.test(normalizedKey)
+        ) {
+          return {
+            success: false,
+            error: `deviceComments içinde geçersiz aygıt anahtarı ("${k.slice(0, 24)}").`,
+          };
+        }
         if (typeof v !== 'string') {
           return {
             success: false,
-            error: `deviceComments["${k}"] değeri metin (string) olmalıdır.`,
+            error: `deviceComments["${normalizedKey}"] değeri metin (string) olmalıdır.`,
           };
         }
         if (v.trim()) {
-          deviceComments[k.trim().toUpperCase()] = v.trim();
+          Object.defineProperty(deviceComments, normalizedKey, {
+            value: v.trim().slice(0, 64),
+            enumerable: true,
+            writable: true,
+            configurable: true,
+          });
         }
       }
     }
@@ -810,7 +842,7 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
     }
     const projectName =
       typeof obj.projectName === 'string' && obj.projectName.trim()
-        ? obj.projectName.trim()
+        ? obj.projectName.trim().slice(0, 80)
         : 'Yuklenen_Proje_DVP';
 
     return {
@@ -823,7 +855,9 @@ export function parseProgramJson(rawJson: string): JsonImportResult {
         rungs: deduplicateRungIds(normalizedRungs),
         deviceComments,
         updatedAt:
-          typeof obj.updatedAt === 'string' ? obj.updatedAt : new Date().toISOString(),
+          typeof obj.updatedAt === 'string' && obj.updatedAt.length <= 64
+            ? obj.updatedAt
+            : new Date().toISOString(),
       },
     };
   } catch {
@@ -918,13 +952,14 @@ export function listSavedProjects(): SavedProjectEntry[] {
     if (!Array.isArray(parsed)) return [];
     const validEntries: SavedProjectEntry[] = [];
     for (const item of parsed) {
-      if (!item || typeof item !== 'object') continue;
+      if (validEntries.length >= MAX_SAVED_ITEMS) break;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
       const candidate = item as Partial<SavedProjectEntry>;
-      if (typeof candidate.id !== 'string' || !candidate.program) continue;
+      if (typeof candidate.id !== 'string' || !candidate.id.trim() || !candidate.program) continue;
       const check = parseProgramJson(JSON.stringify(candidate.program));
       if (!check.success || !check.program) continue;
       validEntries.push({
-        id: candidate.id,
+        id: candidate.id.trim().slice(0, 64),
         projectName: check.program.projectName,
         model: check.program.model,
         updatedAt: check.program.updatedAt,
@@ -1011,17 +1046,21 @@ export function listCustomSnippets(): CustomCircuitSnippet[] {
     if (!Array.isArray(parsed)) return [];
     const valid: CustomCircuitSnippet[] = [];
     for (const item of parsed) {
-      if (!item || typeof item !== 'object') continue;
+      if (valid.length >= MAX_SAVED_ITEMS) break;
+      if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
       const cand = item as Partial<CustomCircuitSnippet>;
-      if (typeof cand.id !== 'string' || typeof cand.title !== 'string' || !cand.program) continue;
+      if (typeof cand.id !== 'string' || !cand.id.trim() || typeof cand.title !== 'string' || !cand.program) continue;
       const check = parseProgramJson(JSON.stringify(cand.program));
       if (!check.success || !check.program) continue;
       valid.push({
-        id: cand.id,
-        title: cand.title.trim() || check.program.projectName,
-        description: typeof cand.description === 'string' ? cand.description.trim() : '',
+        id: cand.id.trim().slice(0, 64),
+        title: cand.title.trim().slice(0, 80) || check.program.projectName,
+        description: typeof cand.description === 'string' ? cand.description.trim().slice(0, 240) : '',
         model: check.program.model,
-        createdAt: typeof cand.createdAt === 'string' ? cand.createdAt : new Date().toISOString(),
+        createdAt:
+          typeof cand.createdAt === 'string' && cand.createdAt.length <= 64
+            ? cand.createdAt
+            : new Date().toISOString(),
         program: check.program,
       });
     }

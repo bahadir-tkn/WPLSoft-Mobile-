@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   Gauge,
-  PanelBottom,
   PanelRight,
   Play,
   RotateCcw,
@@ -30,7 +29,7 @@ interface OnlineSimBarProps {
   onResetMemory: () => void;
 }
 
-const SPEED_OPTIONS: SimSpeedMultiplier[] = [1, 10, 60];
+const SPEED_OPTIONS: SimSpeedMultiplier[] = [1, 2, 10];
 
 export const OnlineSimBar: React.FC<OnlineSimBarProps> = ({
   running,
@@ -124,7 +123,7 @@ export const OnlineSimBar: React.FC<OnlineSimBarProps> = ({
           <span className="hidden sm:inline">Sıfırla</span>
         </button>
 
-        {/* Speed Multiplier (1x / 10x / 60x) */}
+        {/* Speed Multiplier (1x / 2x / 10x) */}
         <div
           role="group"
           aria-label="Simülasyon zaman hızı çarpanı"
@@ -212,26 +211,24 @@ export const OnlineSimBar: React.FC<OnlineSimBarProps> = ({
           ))}
         </div>
 
-        {/* One-tap Device Monitor Drawer / Side-Panel Toggle (Always visible on sm+ / landscape; hidden on narrow portrait where bottom bar is already visible) */}
-        <button
-          type="button"
-          data-testid="sim-toggle-monitor-btn"
-          aria-pressed={isMonitorOpen}
-          onClick={onToggleMonitor}
-          title={isMonitorOpen ? 'I/O İzleme Panelini gizle' : 'I/O İzleme Panelini göster'}
-          className={`${sideDockMonitor ? 'flex' : 'hidden sm:flex'} ${btnHeight} px-2 sm:px-2.5 rounded border text-xs font-semibold items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-            isMonitorOpen
-              ? 'border-[#0B4EA2] bg-[#EEF4FC] text-[#0B4EA2]'
-              : 'border-[#B8C2D1] bg-white text-[#334155] hover:bg-[#EDF4FC]'
-          }`}
-        >
-          {sideDockMonitor ? (
+        {/* Side-panel Device Monitor Toggle (only shown in landscape side-dock mode where collapsed drawer hides its header; bottom-docked mode already has its own ^/v bar) */}
+        {sideDockMonitor && (
+          <button
+            type="button"
+            data-testid="sim-toggle-monitor-btn"
+            aria-pressed={isMonitorOpen}
+            onClick={onToggleMonitor}
+            title={isMonitorOpen ? 'I/O İzleme Panelini gizle' : 'I/O İzleme Panelini göster'}
+            className={`flex ${btnHeight} px-2 sm:px-2.5 rounded border text-xs font-semibold items-center gap-1 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              isMonitorOpen
+                ? 'border-[#0B4EA2] bg-[#EEF4FC] text-[#0B4EA2]'
+                : 'border-[#B8C2D1] bg-white text-[#334155] hover:bg-[#EDF4FC]'
+            }`}
+          >
             <PanelRight className="w-3.5 h-3.5" aria-hidden="true" />
-          ) : (
-            <PanelBottom className="w-3.5 h-3.5" aria-hidden="true" />
-          )}
-          <span>I/O</span>
-        </button>
+            <span>I/O</span>
+          </button>
+        )}
       </div>
     </div>
   );
