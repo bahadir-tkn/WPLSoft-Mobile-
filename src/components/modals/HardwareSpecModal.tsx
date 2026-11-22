@@ -51,9 +51,9 @@ export const HardwareSpecModal: React.FC<HardwareSpecModalProps> = ({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
+      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88dvh] flex flex-col overflow-hidden">
         {/* Modal Header */}
-        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-3">
+        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-3 shrink-0">
           <div>
             <h2 id="hardware-modal-title" className="text-sm font-bold text-[#0F172A]">
               {spec.label} Donanım Profili ve Sekizlik (Octal) Adresleme
@@ -71,7 +71,7 @@ export const HardwareSpecModal: React.FC<HardwareSpecModalProps> = ({
         </div>
 
         {/* Scrollable Body */}
-        <div className="p-4 overflow-y-auto wpl-scrollbar space-y-5 text-xs text-[#1E293B]">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto wpl-scrollbar touch-pan-y space-y-5 text-xs text-[#1E293B]">
           {/* Live Octal Address Validator */}
           <section className="bg-[#F8FAFC] border border-[#CBD2DC] rounded p-3.5">
             <h3 className="text-xs font-bold text-[#0F172A] mb-2">

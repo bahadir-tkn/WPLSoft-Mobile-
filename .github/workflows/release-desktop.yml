@@ -1,0 +1,103 @@
+name: Windows Kurulum (.exe) ve Otomatik Release
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - 'README.md'
+      - '.github/workflows/deploy-pages.yml'
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows-release:
+    runs-on: windows-latest
+    steps:
+      - name: Kaynak kodları al
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bağımlılıkları yükle
+        run: npm install
+
+      - name: Birim testlerini çalıştır
+        run: npm test
+
+      - name: Taşınabilir web paketini oluştur (ZIP)
+        shell: pwsh
+        run: |
+          $env:VITE_BASE_PATH = "./"
+          npm run build
+          if (Test-Path "WPLSoft-Web-Build.zip") { Remove-Item "WPLSoft-Web-Build.zip" }
+          Compress-Archive -Path "dist\*" -DestinationPath "WPLSoft-Web-Build.zip"
+
+      - name: Masaüstü (Electron) arayüzünü derle
+        shell: bash
+        run: |
+          VITE_BASE_PATH=./ VITE_ELECTRON=true npm run build
+          rm -rf electron/web-dist
+          cp -r dist electron/web-dist
+          cp public/pwa-512x512.png electron/icon.png
+
+      - name: Windows .exe kurulum ve taşınabilir sürümlerini derle
+        working-directory: electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: |
+          npm install
+          npm run dist:win
+
+      - name: Sürüm etiketini belirle
+        id: meta
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "title=WPLSoft — ${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "title=WPLSoft — Son Sürüm (Otomatik)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: latest etiketini güncel commit'e taşı
+        if: steps.meta.outputs.tag == 'latest'
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest
+          git push origin latest --force
+
+      - name: GitHub Releases sayfasında yayınla
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.title }}
+          make_latest: true
+          body: |
+            ## WPLSoft — Delta DVP PLC İndirilebilir Sürüm
+
+            Her kod güncellemesinde otomatik olarak derlenir.
+
+            ### İndirme Seçenekleri
+            - **`WPLSoft-Windows-Setup.exe`** — Klasik Windows kurulum sihirbazı (Başlat menüsü ve Masaüstü kısayolu oluşturur).
+            - **`WPLSoft-Windows-Portable.exe`** — Kurulum gerektirmez, indirdiğiniz gibi çift tıklayıp çalıştırabilirsiniz.
+            - **`WPLSoft-Web-Build.zip`** — Kendi sunucunuzda barındırmak için statik web dosyaları.
+          files: |
+            electron/release/WPLSoft-Windows-Setup.exe
+            electron/release/WPLSoft-Windows-Portable.exe
+            WPLSoft-Web-Build.zip

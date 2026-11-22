@@ -6,11 +6,17 @@ import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
+  const rawBase = process.env.VITE_BASE_PATH || '/';
+  const basePath = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
+  const isElectron = process.env.VITE_ELECTRON === 'true';
+
   return {
+    base: basePath,
     plugins: [
       react(),
       tailwindcss(),
       VitePWA({
+        disable: isElectron,
         registerType: 'autoUpdate',
         includeAssets: [
           'icon.svg',
@@ -20,7 +26,7 @@ export default defineConfig(() => {
           'pwa-maskable-512x512.png',
         ],
         manifest: {
-          id: '/',
+          id: basePath,
           name: 'WPLSoft Web — Delta DVP PLC',
           short_name: 'WPLSoft',
           description:
@@ -28,23 +34,23 @@ export default defineConfig(() => {
           theme_color: '#0B4EA2',
           background_color: '#ECEEF2',
           display: 'standalone',
-          start_url: '/',
-          scope: '/',
+          start_url: basePath,
+          scope: basePath,
           icons: [
             {
-              src: '/pwa-192x192.png',
+              src: `${basePath}pwa-192x192.png`,
               sizes: '192x192',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-512x512.png',
+              src: `${basePath}pwa-512x512.png`,
               sizes: '512x512',
               type: 'image/png',
               purpose: 'any',
             },
             {
-              src: '/pwa-maskable-512x512.png',
+              src: `${basePath}pwa-maskable-512x512.png`,
               sizes: '512x512',
               type: 'image/png',
               purpose: 'maskable',

@@ -1,0 +1,52 @@
+{
+  "name": "wplsoft-desktop",
+  "productName": "WPLSoft Delta DVP",
+  "version": "1.0.0",
+  "description": "Delta DVP Serisi PLC Ladder diyagram editörü ve gerçek zamanlı simülatör (Masaüstü Sürümü).",
+  "main": "main.cjs",
+  "author": "WPLSoft Web",
+  "license": "MIT",
+  "scripts": {
+    "dist:win": "electron-builder --win nsis portable"
+  },
+  "devDependencies": {
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.wplsoft.web.deltadvp",
+    "productName": "WPLSoft Delta DVP",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "web-dist/**/*",
+      "icon.png"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "WPLSoft Delta DVP",
+      "artifactName": "WPLSoft-Windows-Setup.exe"
+    },
+    "portable": {
+      "artifactName": "WPLSoft-Windows-Portable.exe"
+    }
+  }
+}

@@ -10,3 +10,7 @@ playwright-report/
 *.log
 .env*
 !.env.example
+electron/node_modules/
+electron/web-dist/
+electron/release/
+electron/icon.png

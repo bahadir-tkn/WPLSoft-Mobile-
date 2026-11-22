@@ -410,9 +410,12 @@ export const WiringDiagramModal: React.FC<WiringDiagramModalProps> = ({
         </div>
 
         {/* Main 2-Zone Body: Left Interactive SVG Trainer Panel + Right Interactive Checklist */}
-        <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden bg-[#ECEEF2]">
+        <div
+          data-testid="wiring-modal-scroll-body"
+          className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden wpl-scrollbar touch-pan-y bg-[#ECEEF2]"
+        >
           {/* Left Zone: BETİ Delta PLC Training Set Vector Schematic */}
-          <div className="lg:flex-1 lg:min-w-0 flex flex-col p-3 sm:p-4 lg:overflow-y-auto wpl-scrollbar">
+          <div className="shrink-0 lg:shrink lg:flex-1 lg:min-w-0 flex flex-col p-3 sm:p-4 lg:overflow-y-auto wpl-scrollbar">
             {/* Color Legend */}
             <div className="flex items-center justify-between gap-2 flex-wrap mb-2.5 text-[11px] text-[#334155]">
               <div className="flex items-center gap-3 flex-wrap">
@@ -478,13 +481,13 @@ export const WiringDiagramModal: React.FC<WiringDiagramModalProps> = ({
 
             {/* Interactive SVG Board */}
             <div className="bg-white border border-[#BFC7D5] rounded p-2 sm:p-3 shadow-xs">
-              <div className="w-full overflow-x-auto wpl-scrollbar">
+              <div data-testid="wiring-svg-scroll-x" className="w-full wpl-scrollbar-x">
                 <svg
                   viewBox="0 0 960 592"
                   role="img"
                   aria-label="BETİ Delta DVP-20SX2 PLC Eğitim Seti fiziksel kablolama şeması"
                   data-testid="beti-wiring-svg"
-                  className="w-full min-w-[680px] h-auto select-none block"
+                  className="w-full min-w-[680px] h-auto select-none block touch-pan-x touch-pan-y"
                 >
                   {/* Panel Backdrop */}
                   <rect
@@ -1354,7 +1357,7 @@ export const WiringDiagramModal: React.FC<WiringDiagramModalProps> = ({
                           onClick={() => toggleWire(conn.id)}
                           onMouseEnter={() => setHoveredWireId(conn.id)}
                           onMouseLeave={() => setHoveredWireId(null)}
-                          className="cursor-pointer"
+                          className="cursor-pointer touch-pan-x touch-pan-y"
                           opacity={isDimmed ? 0.22 : 1}
                         >
                           {/* Invisible wider hit target for easy touch/mouse selection */}
@@ -1478,7 +1481,7 @@ export const WiringDiagramModal: React.FC<WiringDiagramModalProps> = ({
             </div>
 
             {/* Checklist Items or Empty State */}
-            <div className="flex-1 overflow-y-auto wpl-scrollbar p-3 space-y-2">
+            <div className="lg:flex-1 lg:min-h-0 lg:overflow-y-auto wpl-scrollbar p-3 space-y-2">
               {totalCount === 0 ? (
                 <div
                   data-testid="wiring-empty-state"

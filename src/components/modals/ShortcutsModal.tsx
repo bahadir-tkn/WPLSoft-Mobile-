@@ -29,8 +29,8 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
-        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-3">
+      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88dvh] flex flex-col overflow-hidden">
+        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-3 shrink-0">
           <h2 id="shortcuts-modal-title" className="text-sm font-bold text-[#0F172A]">
             WPLSoft Klavye Kısayolları ve Desteklenen Delta Komutları
           </h2>
@@ -44,7 +44,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
           </button>
         </div>
 
-        <div className="p-4 overflow-y-auto wpl-scrollbar space-y-4 text-xs text-[#1E293B]">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto wpl-scrollbar touch-pan-y space-y-4 text-xs text-[#1E293B]">
           <section>
             <h3 className="font-bold text-[#0F172A] mb-2">F1 – F12 Sembol Kısayolları</h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">

@@ -117,7 +117,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
     >
       <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] overflow-hidden">
         {/* Header */}
-        <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2">
+        <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
             <h2 id="templates-modal-title" className="text-sm font-semibold truncate">
@@ -138,7 +138,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
         <div
           role="tablist"
           aria-label="Şablon kategorileri"
-          className="px-4 py-2 bg-white border-b border-[#CBD2DC] flex items-center gap-1.5 overflow-x-auto wpl-scrollbar shrink-0"
+          className="px-4 py-2 bg-white border-b border-[#CBD2DC] flex items-center gap-1.5 wpl-scrollbar-x shrink-0"
         >
           {(
             [
@@ -170,7 +170,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
         </div>
 
         {/* Template / Custom Snippet List */}
-        <div className="p-4 overflow-y-auto wpl-scrollbar space-y-3 bg-[#F4F6F9]">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto wpl-scrollbar touch-pan-y space-y-3 bg-[#F4F6F9]">
           {filter === 'custom' ? (
             <div className="space-y-3">
               {/* Save Active Circuit Form */}

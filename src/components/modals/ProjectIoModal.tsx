@@ -332,7 +332,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
     >
       <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] overflow-hidden">
         {/* Header */}
-        <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2">
+        <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <FolderOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
             <h2 id="project-io-modal-title" className="text-sm font-semibold truncate">
@@ -421,7 +421,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 overflow-y-auto wpl-scrollbar space-y-3 text-xs">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto wpl-scrollbar touch-pan-y space-y-3 text-xs">
           {activeTab === 'projects' && (
             <div className="space-y-3.5">
               {/* Save current workspace into local multi-project library */}

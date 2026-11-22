@@ -1059,7 +1059,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         className="bg-white border border-[#BFC7D5] rounded-t-xl sm:rounded-md shadow-xl w-full max-w-xl max-h-[92dvh] flex flex-col overflow-hidden"
       >
         {/* Header */}
-        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-2">
+        <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-2 shrink-0">
           <h2 id="cell-edit-modal-title" className="text-sm font-bold text-[#0F172A]">
             {modalTitle}
           </h2>
@@ -1074,7 +1074,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         </div>
 
         {/* Body */}
-        <div className="p-4 overflow-y-auto wpl-scrollbar space-y-3.5 text-xs">
+        <div className="flex-1 min-h-0 p-4 overflow-y-auto wpl-scrollbar touch-pan-y space-y-3.5 text-xs">
           {/* Sub-type switcher */}
           {isContact && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">

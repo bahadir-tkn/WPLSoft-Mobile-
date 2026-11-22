@@ -79,6 +79,32 @@
   -webkit-overflow-scrolling: touch;
 }
 
+.wpl-scrollbar-x {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  overscroll-behavior-y: auto;
+  touch-action: pan-x pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.wpl-scrollbar-x::-webkit-scrollbar {
+  height: 8px;
+}
+
+.wpl-scrollbar-x::-webkit-scrollbar-track {
+  background: #edf0f5;
+}
+
+.wpl-scrollbar-x::-webkit-scrollbar-thumb {
+  background: #b8c2d1;
+  border-radius: 4px;
+}
+
+.wpl-scrollbar-x::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 .wpl-scrollbar::-webkit-scrollbar {
   width: 8px;
   height: 8px;
