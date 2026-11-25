@@ -107,8 +107,8 @@ const ToolSymbolGlyph: React.FC<{ toolId: FunctionToolId; active: boolean }> = (
     case 'F10':
       return (
         <svg viewBox="0 0 36 18" className="w-8 h-4" fill="none" aria-hidden="true">
-          <line x1="18" y1="1" x2="18" y2="17" stroke={strokeColor} strokeWidth="2.4" />
-          <line x1="18" y1="9" x2="29" y2="9" stroke={mutedStroke} strokeWidth="1.8" strokeDasharray="3 2" />
+          <rect x="12" y="2" width="18" height="9" stroke={mutedStroke} strokeWidth="1.4" strokeDasharray="3 2" />
+          <line x1="12" y1="1" x2="12" y2="17" stroke={strokeColor} strokeWidth="2.4" />
         </svg>
       );
     case 'F11':

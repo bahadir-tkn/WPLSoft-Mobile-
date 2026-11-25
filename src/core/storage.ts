@@ -17,6 +17,7 @@ import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModel
 
 export const DRAFT_STORAGE_KEY = 'wplsoft_web_dvp_draft_v1';
 export const DRAFT_RECOVERY_KEY = 'wplsoft_web_dvp_recovery_v1';
+export const DRAFT_INVALID_BACKUP_KEY = 'wplsoft_web_dvp_invalid_backup_v1';
 export const SAVED_PROJECTS_KEY = 'wplsoft_web_dvp_projects_v1';
 export const CUSTOM_SNIPPETS_KEY = 'wplsoft_web_dvp_snippets_v1';
 
@@ -912,7 +913,15 @@ export function loadDraftFromStorage(): LadderProgram | null {
     const raw = window.localStorage.getItem(DRAFT_STORAGE_KEY);
     if (!raw) return null;
     const res = parseProgramJson(raw);
-    return res.success && res.program ? res.program : null;
+    if (res.success && res.program) return res.program;
+    // Taslak okunamadıysa sessizce silinmesin: ham hâlini ayrı bir anahtara yedekle
+    // ve bir önceki geçerli sürümden (kurtarma taslağı) devam et.
+    try {
+      window.localStorage.setItem(DRAFT_INVALID_BACKUP_KEY, raw);
+    } catch {
+      // Yedekleme en iyi çaba ile yapılır
+    }
+    return loadRecoveryDraftFromStorage();
   } catch {
     return null;
   }
@@ -1083,7 +1092,7 @@ export function saveCustomSnippet(
   const snippet: CustomCircuitSnippet = {
     id: `snip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title: trimmedTitle,
-    description: description.trim() || 'Kullanıcı tarafından kaydedilen özel Ladder devresi.',
+    description: description.trim(),
     model: program.model,
     createdAt: new Date().toISOString(),
     program: {

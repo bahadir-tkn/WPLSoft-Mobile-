@@ -32,7 +32,14 @@ import {
   LADDER_COIL_COLUMN,
   PLC_MODELS,
 } from '../core/plcModels';
-import { loadDraftFromStorage, saveDraftToStorage } from '../core/storage';
+import {
+  MAX_PROJECT_RUNGS,
+  MAX_ROWS_PER_RUNG,
+  loadDraftFromStorage,
+  parseProgramJson,
+  saveDraftToStorage,
+  serializeProgramJson,
+} from '../core/storage';
 
 export interface EditModalState {
   position: CursorPosition;
@@ -116,6 +123,10 @@ function createDefaultElementForTool(toolId: FunctionToolId): CellElement | null
     default:
       return null;
   }
+}
+
+function rungHasContent(rung: LadderRung): boolean {
+  return rung.rows.some((row) => row.some((c) => c.element.kind !== 'EMPTY' || c.branchDown));
 }
 
 function pruneEmptyTrailingSubRows(rung: LadderRung): LadderRung {
@@ -295,6 +306,15 @@ export function useLadderEditor(
     (nextModel: PlcModelId) => {
       if (isLocked || program.model === nextModel) return;
       const nextSpec = PLC_MODELS[nextModel];
+      // Seçilen modelde olmayan adresler (ör. SX2'ye özel D1110) projeyi geçersiz kılar ve
+      // otomatik kaydın yeniden açılışta reddedilmesine yol açar. Bu yüzden geçişi engelle.
+      const compatibility = parseProgramJson(serializeProgramJson({ ...program, model: nextModel }));
+      if (!compatibility.success) {
+        onNotify(
+          `${nextSpec.label} modeline geçilemedi: ${compatibility.error ?? 'projede bu modelde olmayan adresler var.'} Önce bu adresi değiştirin.`
+        );
+        return;
+      }
       commitProgramUpdate((current) =>
         current.model === nextModel ? current : { ...current, model: nextModel }
       );
@@ -302,7 +322,7 @@ export function useLadderEditor(
         `PLC modeli ${nextSpec.label} olarak güncellendi (${nextSpec.onboardInputCount} DI / ${nextSpec.onboardOutputCount} DO).`
       );
     },
-    [commitProgramUpdate, isLocked, onNotify, program.model]
+    [commitProgramUpdate, isLocked, onNotify, program]
   );
 
   const applyElementToProgram = useCallback(
@@ -363,7 +383,7 @@ export function useLadderEditor(
   );
 
   const handleSaveModal = useCallback(
-    (updatedElement: CellElement, comment: string) => {
+    (updatedElement: CellElement, comment: string | undefined) => {
       if (!editModal) return;
       const base = editModal.previousProgram ?? program;
       const timestamp = new Date().toISOString();
@@ -507,36 +527,67 @@ export function useLadderEditor(
   const toggleBranchDownAt = useCallback(
     (pos: CursorPosition) => {
       if (isLocked) return;
-      if (pos.colIndex >= LADDER_COIL_COLUMN) {
-        onNotify('Paralel kol (F10) lojik sütunlarının (0–7) sağ kenarına eklenir.');
+      // Gerçek WPLSoft'taki gibi: dikey paralel kol, seçili hücrenin SOL kenarından aşağı iner.
+      // Veri modelinde dikey çizgi bir hücrenin sağ kenarında tutulduğu için
+      // seçili sütunun solundaki (colIndex - 1) hücreye yazılır.
+      if (pos.colIndex <= 0) {
+        onNotify(
+          'İlk sütunun solu sol güç hattıdır; satırlar oraya zaten bağlıdır. Paralel kol için 1. sütun veya sağını seçin.'
+        );
         return;
       }
+      const anchorCol = Math.min(pos.colIndex, LADDER_COIL_COLUMN) - 1;
       const targetRung = program.rungs[pos.rungIndex];
-      const currentCell = targetRung?.rows[pos.rowIndex]?.[pos.colIndex];
+      const currentCell = targetRung?.rows[pos.rowIndex]?.[anchorCol];
       if (!targetRung || targetRung.isEnd || !currentCell) return;
 
       const willAddBranch = !currentCell.branchDown;
+      const isLastRow = pos.rowIndex === targetRung.rows.length - 1;
+      const belowRung = program.rungs[pos.rungIndex + 1];
+      // WPLSoft'ta satırlar serbesttir: alttaki satıra önce kontak konup sonra dikey çizgi
+      // çekilebilir. Bu durumda alttaki (dolu) ağ, bu ağın devamı olarak birleştirilir.
+      const willMergeBelow =
+        willAddBranch && isLastRow && Boolean(belowRung) && !belowRung.isEnd && rungHasContent(belowRung);
+      const nextRowCount = willMergeBelow
+        ? targetRung.rows.length + belowRung.rows.length
+        : targetRung.rows.length + (willAddBranch && isLastRow ? 1 : 0);
+      if (willAddBranch && nextRowCount > MAX_ROWS_PER_RUNG) {
+        onNotify(`Bir ağda en fazla ${MAX_ROWS_PER_RUNG} satır olabilir. Devreyi yeni bir ağa bölün.`);
+        return;
+      }
+
       commitProgramUpdate((current) => {
         const rungs = cloneRungs(current.rungs);
         const rung = rungs[pos.rungIndex];
         if (!rung || rung.isEnd) return current;
-        const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
+        const cell = rung.rows[pos.rowIndex]?.[anchorCol];
         if (!cell) return current;
 
         const nextBranch = !cell.branchDown;
         cell.branchDown = nextBranch;
 
         if (nextBranch && pos.rowIndex === rung.rows.length - 1) {
-          rung.rows.push(createEmptyRow(current.columns));
+          const below = rungs[pos.rungIndex + 1];
+          if (willMergeBelow && below && !below.isEnd) {
+            rung.rows.push(...below.rows);
+            if (!rung.comment && below.comment) rung.comment = below.comment;
+            rungs.splice(pos.rungIndex + 1, 1);
+          } else {
+            rung.rows.push(createEmptyRow(current.columns));
+          }
         }
 
         rungs[pos.rungIndex] = pruneEmptyTrailingSubRows(rung);
         return { ...current, rungs };
       });
 
-      if (willAddBranch) {
+      if (willMergeBelow) {
         onNotify(
-          `Ağ ${String(pos.rungIndex).padStart(3, '0')} Sütun ${pos.colIndex} için paralel kol (OR Branch) eklendi.`
+          `Paralel kol eklendi; alttaki satır Ağ ${String(pos.rungIndex).padStart(3, '0')} ile birleştirildi.`
+        );
+      } else if (willAddBranch) {
+        onNotify(
+          `Ağ ${String(pos.rungIndex).padStart(3, '0')} Sütun ${pos.colIndex} hücresinin solundan paralel kol eklendi.`
         );
       } else {
         onNotify('Paralel kol bağlantısı kaldırıldı.');
@@ -548,6 +599,10 @@ export function useLadderEditor(
   const handleInsertRungAfter = useCallback(
     (rungIndex: number) => {
       if (isLocked) return;
+      if (program.rungs.length >= MAX_PROJECT_RUNGS) {
+        onNotify(`Bir projede en fazla ${MAX_PROJECT_RUNGS - 1} ağ olabilir.`);
+        return;
+      }
       const endIdx = program.rungs.findIndex((r) => r.isEnd);
       const predictedIndex =
         endIdx === -1
@@ -598,15 +653,23 @@ export function useLadderEditor(
   }, [commitProgramUpdate, isLocked, onNotify]);
 
   const loadExternalProgram = useCallback(
-    (nextProgram: LadderProgram, message: string) => {
-      commitProgram({
+    (nextProgram: LadderProgram, message: string): boolean => {
+      const candidate: LadderProgram = {
         ...nextProgram,
         rungs: deduplicateRungIds(nextProgram.rungs),
         updatedAt: new Date().toISOString(),
-      });
+      };
+      // Kaydedilemeyecek (yeniden açılışta reddedilecek) bir program asla yüklenmez.
+      const check = parseProgramJson(serializeProgramJson(candidate));
+      if (!check.success || !check.program) {
+        onNotify(`Program yüklenemedi: ${check.error ?? 'geçersiz program yapısı.'}`);
+        return false;
+      }
+      commitProgram(check.program);
       setCursor({ rungIndex: 0, rowIndex: 0, colIndex: 0 });
       setEditModal(null);
       onNotify(message);
+      return true;
     },
     [commitProgram, onNotify]
   );
@@ -669,6 +732,12 @@ export function useLadderEditor(
       const res = applyQuickCommandOnProgram(program, cursor, rawCommand);
       if (!res.ok) {
         return { ok: false, error: res.error };
+      }
+      if (res.program.rungs.some((r) => r.rows.length > MAX_ROWS_PER_RUNG)) {
+        return {
+          ok: false,
+          error: `Bir ağda en fazla ${MAX_ROWS_PER_RUNG} satır olabilir. Devreyi yeni bir ağa bölün.`,
+        };
       }
       commitProgram(res.program);
       setCursor(res.nextCursor);

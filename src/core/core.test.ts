@@ -487,7 +487,8 @@ test('Templates: All 7 industrial & textbook templates compile cleanly with zero
     );
     assert.equal(/^\d+\s/m.test(compiled.rawIlText), false);
     assert.equal(compiled.rawIlText.trim().endsWith('END'), true);
-    assert.ok(Object.keys(program.deviceComments).length > 0, `Template ${tpl.id} missing device comments`);
+    // Şablonlar hiçbir aygıta otomatik açıklama eklememelidir.
+    assert.equal(Object.keys(program.deviceComments).length, 0, `Template ${tpl.id} must not add device comments`);
   }
 });
 
@@ -1390,7 +1391,7 @@ test('Phase 7 WiringAnalyzer: Detects SX2 Analog D1110 (AD0) purple wires and su
   assert.ok(plan.connections.some((c) => c.id === 'gnd-relay-com' && c.toPinId === 'relay-com'));
   const y0Wire = plan.connections.find((c) => c.id === 'out-Y0');
   assert.equal(y0Wire?.toPinId, 'relay-Y0');
-  assert.equal(y0Wire?.deviceComment, 'Isıtıcı');
+  assert.equal(y0Wire?.deviceComment, undefined);
 
   // Purple analog wires V0+ and VI0-
   const vPlus = plan.connections.find((c) => c.id === 'ai-vplus-0');
@@ -2683,3 +2684,24 @@ test('UX: shouldAutoFocusInput returns false on non-desktop / touch devices', ()
 
 
 
+
+test('Step counts follow the Delta DVP instruction table (TMR/CNT = 4, LDP/ANDP/ORP family = 3)', () => {
+  const parsed = parseIlToLadder(
+    'LD X0\nTMR T0 K50\nLDP X1\nCNT C0 K5\nLDF X2\nANDP X3\nOUT Y0\nEND',
+    'DVP-14SS2'
+  );
+  assert.equal(parsed.success, true);
+  const compiled = compileLadderToIl(parsed.program!);
+  const steps = compiled.instructions.map((i) => `${i.stepAddress}:${i.opcode}`);
+  // LD(1) TMR(4) LDP(3) CNT(4) LDF(3) ANDP(3) OUT(1) END
+  assert.deepEqual(steps, ['0:LD', '1:TMR', '5:LDP', '8:CNT', '12:LDF', '15:ANDP', '18:OUT', '19:END']);
+});
+
+test('A program using SX2-only registers is rejected for SS2/SA2 (model-switch guard relies on this)', () => {
+  const analog = getTemplateById('sx2-analog-temp').buildProgram('DVP-SX2');
+  assert.equal(parseProgramJson(serializeProgramJson(analog)).success, true);
+  for (const model of ['DVP-14SS2', 'DVP-12SA2'] as const) {
+    const res = parseProgramJson(serializeProgramJson({ ...analog, model }));
+    assert.equal(res.success, false, `${model} should reject SX2-only registers`);
+  }
+});

@@ -337,7 +337,7 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
   {
     id: 'm-hline',
     category: 'wires',
-    opcode: 'F9 · HLINE',
+    opcode: 'F9 · Yatay',
     label: 'Yatay Bağlantı',
     hint: 'Hücreye yatay tel',
     toolId: 'F9',
@@ -353,7 +353,7 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
   {
     id: 'm-new-rung',
     category: 'wires',
-    opcode: 'F11 · RUNG',
+    opcode: 'F11 · Satır',
     label: 'Yeni Ağ Ekle',
     hint: 'Alt satıra ağ ekle',
     toolId: 'F11',

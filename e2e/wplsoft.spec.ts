@@ -81,7 +81,8 @@ async function assertNoHeaderOverlap(page: Page) {
     });
   });
 
-  expect(boxes.length).toBeGreaterThan(3);
+  // Simülasyon modunda başlıkta daha az düğme bulunur; en az iki görünür kontrol yeterlidir.
+  expect(boxes.length).toBeGreaterThanOrEqual(2);
   for (let i = 0; i < boxes.length; i += 1) {
     for (let j = i + 1; j < boxes.length; j += 1) {
       const a = boxes[i];
@@ -98,6 +99,11 @@ async function assertNoHeaderOverlap(page: Page) {
 
 async function submitQuickCommand(page: Page, cmd: string) {
   const input = page.getByTestId('quick-command-input');
+  // Mobil görünümde komut satırı ">_" düğmesiyle açılır.
+  if (!(await input.isVisible())) {
+    const toggle = page.getByTestId('toggle-quick-cmd-btn');
+    if (await toggle.isVisible()) await toggle.click();
+  }
   await input.fill(cmd);
   await page.getByTestId('quick-command-submit').click();
 }
@@ -147,6 +153,60 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
 
     await assertNoHorizontalOverflow(page);
     await assertNoHeaderOverlap(page);
+    errors.assertZeroErrors();
+  });
+
+  test('WPLSoft drawing order: contact below first, then F10 joins it; Del/Enter keys; model-switch guard', async ({
+    page,
+  }) => {
+    const errors = attachErrorCollectors(page);
+    const place = async (cell: string, key: string, addr: string) => {
+      await page.getByTestId(cell).click();
+      await page.keyboard.press(key);
+      await page.locator('#cell-primary-input').fill(addr);
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#cell-primary-input')).toBeHidden();
+    };
+
+    await place('cell-0-0-0', 'F1', 'X0');
+    await place('cell-0-0-1', 'F2', 'X1');
+    await place('cell-0-0-8', 'F7', 'Y0');
+    // Gerçek WPLSoft sırası: önce alt satıra kontak, sonra dikey çizgi
+    await place('cell-1-0-0', 'F1', 'Y0');
+    await page.getByTestId('cell-0-0-1').click();
+    await page.keyboard.press('F10');
+
+    const ilList = page.getByTestId('il-code-list');
+    await expect(ilList).toContainText(/LD\s*X0[\s\S]*OR\s*Y0[\s\S]*ANI\s*X1[\s\S]*OUT\s*Y0/);
+    await expect(page.getByTestId('cell-0-1-0')).toContainText('Y0');
+
+    // Seal-in works in simulation
+    await page.getByTestId('toggle-online-btn').click();
+    await page.getByTestId('input-btn-X0').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X0').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X1').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /OFF/);
+    await page.getByTestId('toggle-online-btn').click();
+
+    // Enter edits the selected element, Delete removes it
+    await page.getByTestId('cell-0-0-0').click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#cell-primary-input')).toHaveValue('X0');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('cell-0-0-0')).not.toContainText('X0');
+
+    // Model switch is refused when the program uses SX2-only registers
+    await page.getByTestId('open-templates-btn').click();
+    await page.getByTestId('load-template-sx2-analog-temp').click();
+    await page.locator('#plc-model-select').selectOption('DVP-14SS2');
+    await expect(page.locator('#plc-model-select')).toHaveValue('DVP-SX2');
+    await page.reload();
+    await expect(page.getByTestId('il-code-list')).toContainText('D1110');
+
     errors.assertZeroErrors();
   });
 
@@ -282,12 +342,12 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('mobile-command-drawer')).toBeHidden();
 
-    // 3. Ladder zoom buttons (75%, 100%, 125%) work without page overflow
-    await page.getByTestId('zoom-compact-btn').click();
-    await assertNoHorizontalOverflow(page);
-    await page.getByTestId('zoom-large-btn').click();
-    await assertNoHorizontalOverflow(page);
-    await page.getByTestId('zoom-normal-btn').click();
+    // 3. Mobile zoom cycle button (75% → 100% → 125%) works without page overflow
+    const zoomBtn = page.getByTestId('compact-zoom-btn');
+    for (let i = 0; i < 3; i += 1) {
+      await zoomBtn.click();
+      await assertNoHorizontalOverflow(page);
+    }
 
     // 4. Grid scroll container scrolls horizontally inside viewport while documentElement does not
     const scrollInfo = await page.evaluate(() => {
@@ -316,9 +376,9 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await expect(page.getByTestId('cell-0-0-0')).toContainText('X0');
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');
 
-    await page.getByTestId('mobile-undo-btn').click();
+    await page.getByTestId('undo-btn').click();
     await expect(page.getByTestId('cell-0-0-8')).not.toContainText('Y0');
-    await page.getByTestId('mobile-redo-btn').click();
+    await page.getByTestId('redo-btn').click();
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');
 
     await assertNoHorizontalOverflow(page);
@@ -334,7 +394,9 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await submitQuickCommand(page, 'LD X0');
     await submitQuickCommand(page, 'OUT Y0');
 
-    await page.getByTestId('open-project-io-btn').click();
+    // Mobilde Dosya / IL penceresi "⋯" menüsünden açılır.
+    await page.getByTestId('header-more-btn').click();
+    await page.getByTestId('header-more-menu').getByText('Dosya / IL Aktar').click();
     await page.getByTestId('io-tab-projects').click();
     await page.getByTestId('library-project-name-input').fill('Mobil_Test_Kayit');
     await page.getByTestId('save-project-library-btn').click();
@@ -361,7 +423,7 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await assertNoHeaderOverlap(page);
 
     // Exit simulation and reload -> verify zero data loss
-    await page.getByTestId('sim-exit-btn').click();
+    await page.getByTestId('toggle-online-btn').click();
     await page.reload();
     await expect(page.getByTestId('cell-0-0-0')).toContainText('X0');
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');

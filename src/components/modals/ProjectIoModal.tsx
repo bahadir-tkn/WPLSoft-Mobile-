@@ -39,7 +39,8 @@ interface ProjectIoModalProps {
   isOpen: boolean;
   program: LadderProgram;
   compileResult: CompileResult;
-  onImportProgram: (nextProgram: LadderProgram, message: string) => void;
+  /** false dönerse program yüklenemedi demektir; pencere açık kalır. */
+  onImportProgram: (nextProgram: LadderProgram, message: string) => boolean;
   onRenameProject: (name: string) => void;
   onResetGrid: () => void;
   onNotify: (message: string) => void;
@@ -156,11 +157,11 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   };
 
   const handleOpenSavedProject = (entry: SavedProjectEntry) => {
-    onImportProgram(
+    const imported = onImportProgram(
       entry.program,
       `"${entry.projectName}" projesi kütüphaneden açıldı (${entry.model}).`
     );
-    onClose();
+    if (imported) onClose();
   };
 
   const handleDuplicateSavedProject = (entry: SavedProjectEntry) => {
@@ -187,11 +188,11 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
 
   const handleRestoreRecoveryDraft = () => {
     if (!recoveryDraft) return;
-    onImportProgram(
+    const imported = onImportProgram(
       recoveryDraft,
       `Önceki otomatik yedek ("${recoveryDraft.projectName}") geri yüklendi.`
     );
-    onClose();
+    if (imported) onClose();
   };
 
   const fileSlug = sanitizeFileSlug(program.projectName);
@@ -264,17 +265,17 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       ilDraft,
       program.model,
       program.projectName,
-      program.deviceComments
+      {}
     );
     setIlErrors(result.errors);
     setIlWarnings(result.warnings);
 
     if (result.success && result.program) {
-      onImportProgram(
+      const imported = onImportProgram(
         result.program,
         `IL kodu başarıyla Ladder diyagramına dönüştürüldü (${result.parsedRungCount} Ağ).`
       );
-      onClose();
+      if (imported) onClose();
     }
   };
 
@@ -315,11 +316,11 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
         setJsonError(parsed.error ?? 'Geçersiz JSON proje dosyası.');
         return;
       }
-      onImportProgram(
+      const imported = onImportProgram(
         parsed.program,
         `"${parsed.program.projectName}" projesi (.json) başarıyla yüklendi.`
       );
-      onClose();
+      if (imported) onClose();
     } catch {
       setJsonError('Dosya okunurken hata oluştu.');
     } finally {

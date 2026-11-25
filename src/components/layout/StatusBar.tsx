@@ -15,6 +15,11 @@ interface StatusBarProps {
   scanTimeMs: number;
   storageError?: string | null;
   hidden?: boolean;
+  /**
+   * Masaüstünde Ağ / Step / Lojik bilgisi zaten diyagramın sol üstünde gösterildiği için
+   * alt çubukta tekrar edilmez. Sadece telefon/tablet görünümünde burada gösterilir.
+   */
+  showCursorInfo?: boolean;
 }
 
 export const StatusBar: React.FC<StatusBarProps> = ({
@@ -31,6 +36,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
   scanTimeMs,
   storageError,
   hidden = false,
+  showCursorInfo = true,
 }) => {
   if (hidden) return null;
 
@@ -55,12 +61,16 @@ export const StatusBar: React.FC<StatusBarProps> = ({
           </>
         ) : (
           <>
-            <span className="font-mono text-[#0F172A]">
-              Ağ {String(cursor.rungIndex).padStart(3, '0')}:{cursor.rowIndex} · Sütun {cursor.colIndex}
-            </span>
-            <span className="hidden sm:inline text-[#94A3B8]" aria-hidden="true">
-              ·
-            </span>
+            {showCursorInfo && (
+              <>
+                <span className="font-mono text-[#0F172A]">
+                  Ağ {String(cursor.rungIndex).padStart(3, '0')}:{cursor.rowIndex} · Sütun {cursor.colIndex}
+                </span>
+                <span className="hidden sm:inline text-[#94A3B8]" aria-hidden="true">
+                  ·
+                </span>
+              </>
+            )}
             <span className="hidden sm:inline font-mono">
               {modelSpec.onboardInputCount} DI / {modelSpec.onboardOutputCount} DO
             </span>

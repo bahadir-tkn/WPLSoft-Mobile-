@@ -30,9 +30,10 @@ export default defineConfig(() => {
           name: 'WPLSoft Web — Delta DVP PLC',
           short_name: 'WPLSoft',
           description:
-            'Delta DVP Serisi PLC Ladder diyagram editörü, PC WPLSoft uyumlu IL dönüştürücüsü ve gerçek zamanlı 20ms tarama simülatörü.',
+            "Delta DVP PLC'ler için telefonda ve bilgisayarda çalışan Ladder diyagram çizme ve deneme (simülasyon) programı.",
           theme_color: '#0B4EA2',
           background_color: '#ECEEF2',
+          lang: 'tr',
           display: 'standalone',
           start_url: basePath,
           scope: basePath,
@@ -146,8 +147,8 @@ export default registerDevSW;`
           if (error) {
             return;
           }
-          const distDir = path.resolve(__dirname, 'dist');
-          const srcAssets = path.resolve(__dirname, 'src/assets');
+          const distDir = path.resolve(import.meta.dirname, 'dist');
+          const srcAssets = path.resolve(import.meta.dirname, 'src/assets');
           const distAssets = path.resolve(distDir, 'src/assets');
           if (fs.existsSync(distDir) && fs.existsSync(srcAssets)) {
             fs.cpSync(srcAssets, distAssets, { recursive: true, force: true });
@@ -157,7 +158,7 @@ export default registerDevSW;`
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve(import.meta.dirname, '.'),
       },
     },
     build: {

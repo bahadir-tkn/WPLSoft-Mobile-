@@ -316,7 +316,7 @@ export const FUNCTION_TOOLBAR_ITEMS: FunctionToolDefinition[] = [
     label: 'Dikey Paralel Kol',
     shortLabel: 'Paralel Kol',
     mnemonic: 'OR / MPS',
-    description: 'Alt satır ile paralel bağlantı (OR / ORB) veya çoklu çıkış dalı (MPS/MRD/MPP) çizer.',
+    description: 'Seçili hücrenin solundan alt satıra dikey paralel kol çizer (OR / ORB veya MPS/MRD/MPP çoklu çıkış).',
     columnScope: 'logic',
   },
   {
