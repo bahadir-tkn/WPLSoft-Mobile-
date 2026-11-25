@@ -120,6 +120,8 @@ export type CellElement =
   | {
       kind: 'ALT';
       target: string;
+      /** ALTP: yalnızca giriş yükselen kenarında bir kez değiştirir */
+      pulsed?: boolean;
       comment?: string;
     }
   | {
@@ -274,6 +276,7 @@ export type IlOpcode =
   | 'CNT'
   | 'MOV'
   | 'ALT'
+  | 'ALTP'
   | 'ZRST'
   | 'CMP'
   | 'ADD'

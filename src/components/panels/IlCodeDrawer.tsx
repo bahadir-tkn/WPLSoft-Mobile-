@@ -37,6 +37,7 @@ function opcodeColorClass(opcode: IlOpcode): string {
     opcode === 'CNT' ||
     opcode === 'MOV' ||
     opcode === 'ALT' ||
+    opcode === 'ALTP' ||
     opcode === 'ZRST' ||
     opcode === 'CMP' ||
     opcode === 'ADD' ||

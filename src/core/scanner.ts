@@ -185,7 +185,7 @@ function computeClockPulse(
  * 1. Updates special system & clock relays (M1000–M1003, M1011–M1014) and live SX2 RTC (D1313–D1319).
  * 2. Evaluates each rung's electrical network left-to-right (including parallel OR / MPS branches).
  * 3. Updates OUT, SET, RST, real-time 100ms TMR, rising-edge CNT (with RST/ZRST priority), MOV,
- *    ALT, ZRST, CMP, ADD/SUB/MUL/DIV (with M1020/M1021/M1022 flags), INC/INCP/DEC/DECP, and TRD.
+ *    ALT (her tarama) / ALTP (kenar), ZRST, CMP, ADD/SUB/MUL/DIV (with M1020/M1021/M1022 flags), INC/INCP/DEC/DECP, and TRD.
  * 4. Snapshots bit & instruction edge states for the next scan.
  */
 export function executeScanCycle(
@@ -258,6 +258,10 @@ export function executeScanCycle(
   const prevBits = prevState.previousBitStates;
   const prevEdgeStates = prevState.instructionEdgeStates ?? {};
   const nextEdgeStates: Record<string, boolean> = {};
+  // LDP/LDF/ANDP/... kontaklarının kendi kenar belleği, komut çalışmadığı taramalarda (pasif adım) korunur.
+  for (const [k, v] of Object.entries(prevEdgeStates)) {
+    if (k.startsWith('contact:')) nextEdgeStates[k] = v;
+  }
 
   const energizedCells: Record<string, boolean> = {};
   const energizedWires: Record<string, boolean> = {};
@@ -350,10 +354,19 @@ export function executeScanCycle(
     }
   };
 
-  const evalContact = (contactType: ContactKind, address: string): boolean => {
+  /**
+   * Kontak değeri. Kenar kontakları (LDP/LDF…) gerçek PLC'deki gibi komutun KENDİ belleğiyle
+   * çalışır: komutun bir önceki çalışmasında gördüğü değerle karşılaştırılır. Böylece bit,
+   * programda kontaktan sonra değişse bile darbe kaçmaz.
+   */
+  const evalContact = (contactType: ContactKind, address: string, memKey?: string): boolean => {
     const norm = address.trim().toUpperCase();
     const cur = readBit(norm);
-    const prev = Boolean(prevBits[norm]);
+    let prev = Boolean(prevBits[norm]);
+    if (memKey && (contactType === 'RISING' || contactType === 'FALLING')) {
+      prev = memKey in prevEdgeStates ? Boolean(prevEdgeStates[memKey]) : false;
+      nextEdgeStates[memKey] = cur;
+    }
     switch (contactType) {
       case 'NO':
         return cur;
@@ -460,7 +473,7 @@ export function executeScanCycle(
       if (!el) return false;
       if (el.kind === 'HLINE') return true;
       if (el.kind === 'CONTACT') {
-        return evalContact(el.contactType, el.address);
+        return evalContact(el.contactType, el.address, `contact:${cellKey(rungIndex, r, c)}`);
       }
       if (el.kind === 'COMPARE') {
         return compareValues(
@@ -598,11 +611,82 @@ export function executeScanCycle(
 
     const propagateDownstreamFromRow = (executedRow: number) => {
       if (executedRow >= lastOutputRow) return;
-      for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+      // Gerçek PLC komut listesini sırayla yürütür: üstteki çıkıştan SONRA gelen kontaklar
+      // (MPS/MRD/MPP dalları, "çıkıştan sonra AND") güncel değerleri okur; çıkıştan ÖNCE
+      // değerlendirilmiş olan bağlantı noktaları (ör. alt satırdaki OR kontağının birleştiği
+      // düğüm) ise değişmez. Bu yüzden:
+      //  1. Çalışmış satırlara dikey bağlı düğümler "sabitlenir" (değerleri korunur),
+      //  2. Yalnızca bir çıkışa sabit düğümden geçmeden ulaşan hücreler yeniden okunur,
+      //  3. Alt satırların gücü bu kurala göre baştan hesaplanır (eski güç silinir).
+      const width = logicCols + 1;
+      const parent = Array.from({ length: rowCount * width }, (_, i) => i);
+      const find = (i: number): number => {
+        while (parent[i] !== i) {
+          parent[i] = parent[parent[i]];
+          i = parent[i];
+        }
+        return i;
+      };
+      for (let r = 0; r < rowCount - 1; r += 1) {
         for (let c = 0; c < logicCols; c += 1) {
-          cellConducts[rr][c] = evalCellConductance(rr, c);
+          if (rung.rows[r]?.[c]?.branchDown) {
+            parent[find(r * width + c + 1)] = find((r + 1) * width + c + 1);
+          }
         }
       }
+      const pinnedValue = new Map<number, boolean>();
+      for (let r = 0; r <= executedRow; r += 1) {
+        for (let b = 0; b <= logicCols; b += 1) {
+          const g = find(r * width + b);
+          pinnedValue.set(g, (pinnedValue.get(g) ?? false) || boundaryPower[r][b]);
+        }
+      }
+      const isPinned = (r: number, b: number) => pinnedValue.has(find(r * width + b));
+
+      // Bir çıkışa (sabit düğümden geçmeden) ulaşabilen sınırlar
+      const live: boolean[][] = Array.from({ length: rowCount }, (_, r) =>
+        Array.from({ length: width }, (_, b) => r > executedRow && b === logicCols)
+      );
+      let liveChanged = true;
+      while (liveChanged) {
+        liveChanged = false;
+        for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+          for (let b = logicCols - 1; b >= 0; b -= 1) {
+            if (live[rr][b] || isPinned(rr, b)) continue;
+            const kind = rung.rows[rr]?.[b]?.element.kind;
+            const viaCell =
+              kind !== undefined && kind !== 'EMPTY' && live[rr][b + 1] && !isPinned(rr, b + 1);
+            let viaGroup = false;
+            if (!viaCell) {
+              const g = find(rr * width + b);
+              for (let r2 = executedRow + 1; r2 < rowCount && !viaGroup; r2 += 1) {
+                if (r2 !== rr && find(r2 * width + b) === g && live[r2][b]) viaGroup = true;
+              }
+            }
+            if (viaCell || viaGroup) {
+              live[rr][b] = true;
+              liveChanged = true;
+            }
+          }
+        }
+      }
+
+      for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
+        for (let c = 0; c < logicCols; c += 1) {
+          if (live[rr][c + 1] && !isPinned(rr, c + 1)) {
+            cellConducts[rr][c] = evalCellConductance(rr, c);
+          }
+          delete energizedCells[cellKey(rungIndex, rr, c)];
+          delete energizedWires[leftWireKey(rungIndex, rr, c)];
+          delete energizedWires[branchWireKey(rungIndex, rr, c)];
+          delete conductingCells[cellKey(rungIndex, rr, c)];
+        }
+        for (let b = 0; b <= logicCols; b += 1) {
+          const pv = pinnedValue.get(find(rr * width + b));
+          boundaryPower[rr][b] = pv !== undefined ? pv : b === 0 && railPower;
+        }
+      }
+
       let subChanged = true;
       let subSafety = 0;
       while (subChanged && subSafety < maxIterations) {
@@ -613,7 +697,8 @@ export function executeScanCycle(
           for (let c = 0; c < logicCols; c += 1) {
             if (
               ((boundaryPower[rr][c] && cellConducts[rr][c]) || edgeForced[rr][c]) &&
-              !boundaryPower[rr][c + 1]
+              !boundaryPower[rr][c + 1] &&
+              !isPinned(rr, c + 1)
             ) {
               boundaryPower[rr][c + 1] = true;
               subChanged = true;
@@ -621,17 +706,14 @@ export function executeScanCycle(
           }
         }
 
-        // Pull power downward from frozen executedRow (or between rows > executedRow) without altering rows <= executedRow
-        for (let rr = executedRow; rr < rowCount - 1; rr += 1) {
+        // Çalışmamış satırlar arasındaki dikey bağlantılar (sabit düğümlere dokunulmaz)
+        for (let rr = executedRow + 1; rr < rowCount - 1; rr += 1) {
           for (let c = 0; c < logicCols; c += 1) {
-            if (rung.rows[rr]?.[c]?.branchDown) {
+            if (rung.rows[rr]?.[c]?.branchDown && !isPinned(rr, c + 1)) {
               const b = c + 1;
-              if (boundaryPower[rr][b] && !boundaryPower[rr + 1][b]) {
-                boundaryPower[rr + 1][b] = true;
-                subChanged = true;
-              }
-              if (rr > executedRow && boundaryPower[rr + 1][b] && !boundaryPower[rr][b]) {
+              if (boundaryPower[rr][b] !== boundaryPower[rr + 1][b]) {
                 boundaryPower[rr][b] = true;
+                boundaryPower[rr + 1][b] = true;
                 subChanged = true;
               }
             }
@@ -763,8 +845,8 @@ export function executeScanCycle(
           registers[dest] = clampSigned16(readWord(el.source));
         }
       } else if (el.kind === 'ALT') {
-        // Flip-Flop: toggles target bit (Y/M) cleanly on rising edge of rungPower (works with both LD and LDP)
-        if (isRisingRungPower) {
+        // Delta API 66: ALT giriş açıkken HER taramada tersler; ALTP yalnızca yükselen kenarda bir kez.
+        if (el.pulsed ? isRisingRungPower : rungPower) {
           const target = el.target.trim().toUpperCase();
           writeBit(target, !readBit(target));
         }

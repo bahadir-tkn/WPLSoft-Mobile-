@@ -33,6 +33,7 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
   açıklama listesini kopyalayıp WPLSoft'taki aygıt açıklamalarına girebilirsiniz.
 - **Kablo bağlantı rehberi:** Hangi kablonun PLC'nin hangi ucuna takılacağını adım adım gösterir.
 - **Hazır örnekler:** Mühürleme (start-stop), yıldız-üçgen, ileri-geri, trafik lambası gibi devreleri tek dokunuşla açın.
+- **Laboratuvar deneyleri:** Şablonlar → **Deneyler** sekmesinde Deney 4 (Çamaşır Makinesi), Deney 5 (Dalgıç Pompa) ve Deney 6 (Su–Köpük) föydeki diyagramlarla hazır gelir.
 
 ## Ders Kitabıyla Uyum
 
@@ -44,6 +45,9 @@ Uygulama, *Delta DVP-PLC Serisi Programlama ve Otomasyon* kitabındaki konuları
 - Adım (SFC) programlama: `S` adımları, `STL` ve `RET`
 - Diyagramlardaki **↑ / ↓** sonuç kenarı (`NP` / `PN`) ve WPLSoft'un "çıkıştan sonra AND" yazımı
 - Genişleme modülü adresleri (ör. pnömatik uygulamadaki `X20`–`X27`, `Y20`–`Y27`)
+
+- Simülatör, gerçek PLC'nin komut listesini satır satır çalıştırmasıyla birebir aynı sonucu verecek şekilde test edilir
+  (ör. `ALT` giriş açıkken her taramada değişir, tek butonla aç/kapa için `ALTP` veya `LDP` kullanılır).
 
 > Not: Kitaptaki bazı çizimlerde hatalar var (ör. aynı çıkışın iki ayrı satırda `OUT` olarak kullanılması).
 > Uygulama bu durumları "Derleme Çıktısı" bölümünde uyarı olarak gösterir.

@@ -288,6 +288,147 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     errors.assertZeroErrors();
   });
 
+  test('Deney 4 repeat loop drawn by hand: T0/T1/C0 branches connect and the drum turns 4 times before draining', async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    const errors = attachErrorCollectors(page);
+    const at = async (cell: string, key: string, fields: string[], button?: string) => {
+      await page.getByTestId(cell).click();
+      await page.keyboard.press(key);
+      await expect(page.locator('#cell-primary-input')).toBeVisible();
+      if (button) await page.getByRole('button', { name: button, exact: true }).click();
+      await page.locator('#cell-primary-input').fill(fields[0]);
+      if (fields[1]) await page.locator('#cell-secondary-input').fill(fields[1]);
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#cell-primary-input')).toBeHidden();
+    };
+    const branch = async (cell: string) => {
+      await page.getByTestId(cell).click();
+      await page.keyboard.press('F10');
+    };
+    const SET = 'SET (Mühürle)';
+    const RST = 'RST (Sıfırla)';
+    // Ağ 0: X0 -> SET M0, SET M13
+    await at('cell-0-0-0', 'F1', ['X0']);
+    await at('cell-0-0-8', 'F8', ['M0'], SET);
+    await branch('cell-0-0-1');
+    await at('cell-0-1-1', 'F8', ['M13'], SET);
+    // Ağ 1: M0 M13 -> SET Y0 / TMR T0 K20 / T0 -> RST Y0, RST M13, SET M14
+    await at('cell-1-0-0', 'F1', ['M0']);
+    await at('cell-1-0-1', 'F1', ['M13']);
+    await at('cell-1-0-8', 'F8', ['Y0'], SET);
+    await branch('cell-1-0-2');
+    await at('cell-1-1-2', 'F6', ['T0', 'K20']);
+    await branch('cell-1-1-2');
+    await at('cell-1-2-2', 'F1', ['T0']);
+    await at('cell-1-2-3', 'F8', ['Y0'], RST);
+    await branch('cell-1-2-3');
+    await at('cell-1-3-3', 'F8', ['M13'], RST);
+    await branch('cell-1-3-3');
+    await at('cell-1-4-3', 'F8', ['M14'], SET);
+    // Ağ 2: M0 M14 -> SET Y1 / TMR T1 K20 / T1 -> RST Y1, RST M14, SET M13, CNT C0 K4 / C0 -> RST M13, SET M15
+    await at('cell-2-0-0', 'F1', ['M0']);
+    await at('cell-2-0-1', 'F1', ['M14']);
+    await at('cell-2-0-8', 'F8', ['Y1'], SET);
+    await branch('cell-2-0-2');
+    await at('cell-2-1-2', 'F6', ['T1', 'K20']);
+    await branch('cell-2-1-2');
+    await at('cell-2-2-2', 'F1', ['T1']);
+    await at('cell-2-2-3', 'F8', ['Y1'], RST);
+    await branch('cell-2-2-3');
+    await at('cell-2-3-3', 'F8', ['M14'], RST);
+    await branch('cell-2-3-3');
+    await at('cell-2-4-3', 'F8', ['M13'], SET);
+    await branch('cell-2-4-3');
+    await at('cell-2-5-3', 'F6', ['C0', 'K4'], 'CNT');
+    await branch('cell-2-5-3');
+    await at('cell-2-6-3', 'F1', ['C0']);
+    await at('cell-2-6-4', 'F8', ['M13'], RST);
+    await branch('cell-2-6-4');
+    await at('cell-2-7-4', 'F8', ['M15'], SET);
+    // Ağ 3: M0 M15 -> SET Y4
+    await at('cell-3-0-0', 'F1', ['M0']);
+    await at('cell-3-0-1', 'F1', ['M15']);
+    await at('cell-3-0-8', 'F8', ['Y4'], SET);
+
+    // Föydeki komut listesiyle birebir aynı (T0/T1/C0 koşulları kaybolmaz)
+    const il = (await page.getByTestId('il-code-list').innerText()).replace(/\d{4}/g, '').replace(/\s+/g, ' ');
+    expect(il).toContain(
+      'LD M0 AND M14 SET Y1 TMR T1 K20 AND T1 RST Y1 RST M14 SET M13 CNT C0 K4 AND C0 RST M13 SET M15'
+    );
+    expect(il).toContain('LD M0 AND M13 SET Y0 TMR T0 K20 AND T0 RST Y0 RST M13 SET M14');
+    await expect(page.getByText('Derleme temiz')).toBeVisible();
+
+    // Simülasyon (10x): X0'a bas-bırak, sonra Y0/Y1 geçişlerini kaydet
+    await page.getByTestId('toggle-online-btn').click();
+    await page.getByTestId('sim-speed-10').click();
+    await page.getByTestId('input-btn-X0').click();
+    await page.getByTestId('input-btn-X0').click();
+    const seq = await page.evaluate(async () => {
+      const read = () =>
+        ['Y0', 'Y1', 'Y4']
+          .filter((y) =>
+            /ON/.test(document.querySelector(`[data-testid="output-led-${y}"]`)?.getAttribute('aria-label') ?? '')
+          )
+          .join('+') || '-';
+      const out: string[] = [];
+      const start = performance.now();
+      while (performance.now() - start < 8000) {
+        const v = read();
+        if (out[out.length - 1] !== v) out.push(v);
+        if (v === 'Y4') break;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      return out;
+    });
+    const rights = seq.filter((v) => v === 'Y0').length;
+    const lefts = seq.filter((v) => v === 'Y1').length;
+    expect(rights, seq.join(' ')).toBe(4);
+    expect(lefts, seq.join(' ')).toBe(4);
+    expect(seq[seq.length - 1]).toBe('Y4');
+    errors.assertZeroErrors();
+  });
+
+  test('Deney 4 template (Deneyler tab) runs water → heat → detergent → 4 turns → drain', async ({ page }) => {
+    test.setTimeout(60_000);
+    const errors = attachErrorCollectors(page);
+    await page.getByTestId('open-templates-btn').click();
+    await page.getByTestId('tpl-filter-experiment').click();
+    await page.getByTestId('load-template-deney4-camasir-makinesi').click();
+    await expect(page.getByTestId('il-code-list')).toContainText(/CNT\s*C0\s*K4/);
+    await page.getByTestId('toggle-online-btn').click();
+    await page.getByTestId('sim-speed-10').click();
+    await page.getByTestId('input-btn-X0').click();
+    await page.getByTestId('input-btn-X0').click();
+    await expect(page.getByTestId('output-led-Y2')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X1').click();
+    await expect(page.getByTestId('output-led-Y5')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X2').click();
+    const seq = await page.evaluate(async () => {
+      const read = () =>
+        ['Y0', 'Y1', 'Y3', 'Y4']
+          .filter((y) =>
+            /ON/.test(document.querySelector(`[data-testid="output-led-${y}"]`)?.getAttribute('aria-label') ?? '')
+          )
+          .join('+') || '-';
+      const out: string[] = [];
+      const start = performance.now();
+      while (performance.now() - start < 9000) {
+        const v = read();
+        if (out[out.length - 1] !== v) out.push(v);
+        if (out.includes('Y4') && v === '-') break;
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      return out;
+    });
+    expect(seq.find((v) => v !== '-'), seq.join(' ')).toBe('Y3');
+    expect(seq.filter((v) => v === 'Y0').length, seq.join(' ')).toBe(4);
+    expect(seq.filter((v) => v === 'Y1').length, seq.join(' ')).toBe(4);
+    expect(seq.slice(-2), seq.join(' ')).toEqual(['Y4', '-']);
+    errors.assertZeroErrors();
+  });
+
   test('StrictMode Undo/Redo reliability: single, sequential, redo, and future-clear on new edit', async ({
     page,
   }) => {

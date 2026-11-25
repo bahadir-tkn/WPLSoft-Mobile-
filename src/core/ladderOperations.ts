@@ -742,7 +742,7 @@ export function describeCellElement(el: CellElement): string {
     case 'MOV':
       return `MOV ${el.source} ${el.destination}`;
     case 'ALT':
-      return `ALT ${el.target}`;
+      return `${el.pulsed ? 'ALTP' : 'ALT'} ${el.target}`;
     case 'ZRST':
       return `ZRST ${el.start} ${el.end}`;
     case 'CMP':
@@ -820,7 +820,7 @@ function collectCellReferences(
       addIfDevice(el.destination, 'write', 'MOV');
       break;
     case 'ALT':
-      addIfDevice(el.target, 'write', 'ALT');
+      addIfDevice(el.target, 'write', el.pulsed ? 'ALTP' : 'ALT');
       break;
     case 'ZRST':
       addIfDevice(el.start, 'write', 'ZRST');

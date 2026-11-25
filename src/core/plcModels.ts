@@ -283,7 +283,7 @@ export const FUNCTION_TOOLBAR_ITEMS: FunctionToolDefinition[] = [
     label: 'Uygulama Komutu',
     shortLabel: 'Uygulama',
     mnemonic: 'TMR/MOV/FLOAT/RTC',
-    description: 'TMR, CNT, MOV, SQR, DMOVR, DADDR..DDIVR, DESQR, FLT, ALT, ZRST, CMP, ADD..DIV, INC/DEC, TRD, TWR ve TZCP komutları.',
+    description: 'TMR, CNT, MOV, SQR, DMOVR, DADDR..DDIVR, DESQR, FLT, ALT/ALTP, ZRST, CMP, ADD..DIV, INC/DEC, TRD, TWR ve TZCP komutları.',
     columnScope: 'output',
   },
   {

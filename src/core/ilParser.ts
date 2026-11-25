@@ -1209,6 +1209,7 @@ export function parseIlToLadder(
       pushOutputElement({
         kind: 'ALT',
         target: check.parsed.normalized,
+        pulsed: opcode === 'ALTP' || undefined,
       });
       continue;
     }

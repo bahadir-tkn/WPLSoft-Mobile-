@@ -83,7 +83,7 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
       case 'MOV':
         return `MOV ${element.source} ${element.destination}`;
       case 'ALT':
-        return `ALT ${element.target}`;
+        return `${element.pulsed ? 'ALTP' : 'ALT'} ${element.target}`;
       case 'ZRST':
         return `ZRST ${element.start} ${element.end}`;
       case 'CMP':
@@ -466,7 +466,9 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
       case 'TWR': {
         const opcode =
           element.kind === 'ALT'
-            ? 'ALT'
+            ? element.pulsed
+              ? 'ALTP'
+              : 'ALT'
             : element.kind === 'TRD'
               ? 'TRD'
               : element.kind === 'TWR'

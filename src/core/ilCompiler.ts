@@ -6,6 +6,7 @@ import type {
   IlInstruction,
   IlOpcode,
   LadderProgram,
+  LadderRung,
 } from '../types/plc';
 import { validateAddress, validateZrstRange } from './addressing';
 import { buildRungAst, getStepHeader, type LogicAstNode, type OutputAstElement } from './ast';
@@ -75,6 +76,7 @@ function instructionStepCost(opcode: IlOpcode): number {
   }
   if (
     opcode === 'ALT' ||
+    opcode === 'ALTP' ||
     opcode === 'INC' ||
     opcode === 'INCP' ||
     opcode === 'DEC' ||
@@ -251,7 +253,7 @@ function emitOutput(
       return;
     case 'ALT':
       out.push({
-        opcode: 'ALT',
+        opcode: element.pulsed ? 'ALTP' : 'ALT',
         operands: [element.target],
         rungIndex,
       });
@@ -915,6 +917,75 @@ export function formatIlLine(inst: Pick<IlInstruction, 'opcode' | 'operands'>): 
  * Compiles a LadderProgram into Delta Instruction List (IL) instructions, pure WPLSoft-pasteable rawIlText,
  * and compile-time diagnostics (Double Coil, Missing END, Open Circuit, Invalid Address).
  */
+/**
+ * Sol baraya ve bir çıkışa birlikte bağlı OLMAYAN kontakları bulur. Bu elemanlar komut
+ * listesine yazılmaz ve devreye etkisi yoktur (ör. paralel kolu tamamlanmamış bir T1/C0 kontağı).
+ */
+function findUnconnectedLogicCells(rung: LadderRung): { row: number; col: number; label: string }[] {
+  const rows = rung.rows.length;
+  const width = LADDER_COIL_COLUMN + 1;
+  const parent = Array.from({ length: rows * width }, (_, i) => i);
+  const find = (i: number): number => {
+    while (parent[i] !== i) {
+      parent[i] = parent[parent[i]];
+      i = parent[i];
+    }
+    return i;
+  };
+  for (let r = 0; r < rows - 1; r += 1) {
+    for (let c = 0; c < LADDER_COIL_COLUMN; c += 1) {
+      if (rung.rows[r][c]?.branchDown) parent[find(r * width + c + 1)] = find((r + 1) * width + c + 1);
+    }
+  }
+  const filled = (r: number, c: number) => rung.rows[r][c]?.element.kind !== 'EMPTY';
+  const left = Array.from({ length: rows }, () => Array<boolean>(width).fill(false));
+  const right = Array.from({ length: rows }, () => Array<boolean>(width).fill(false));
+  for (let r = 0; r < rows; r += 1) {
+    left[r][0] = true;
+    const out = rung.rows[r][LADDER_COIL_COLUMN]?.element.kind;
+    right[r][LADDER_COIL_COLUMN] = out !== undefined && out !== 'EMPTY' && out !== 'HLINE';
+  }
+  const spread = (grid: boolean[][]) => {
+    const on = new Set<number>();
+    for (let r = 0; r < rows; r += 1) for (let b = 0; b < width; b += 1) if (grid[r][b]) on.add(find(r * width + b));
+    for (let r = 0; r < rows; r += 1) for (let b = 0; b < width; b += 1) if (on.has(find(r * width + b))) grid[r][b] = true;
+  };
+  for (let changed = true; changed; ) {
+    changed = false;
+    spread(left);
+    spread(right);
+    for (let r = 0; r < rows; r += 1) {
+      for (let c = 0; c < LADDER_COIL_COLUMN; c += 1) {
+        if (!filled(r, c)) continue;
+        if (left[r][c] && !left[r][c + 1]) {
+          left[r][c + 1] = true;
+          changed = true;
+        }
+        if (right[r][c + 1] && !right[r][c]) {
+          right[r][c] = true;
+          changed = true;
+        }
+      }
+    }
+  }
+  const result: { row: number; col: number; label: string }[] = [];
+  for (let r = 0; r < rows; r += 1) {
+    for (let c = 0; c < LADDER_COIL_COLUMN; c += 1) {
+      const el = rung.rows[r][c]?.element;
+      if (!el || (el.kind !== 'CONTACT' && el.kind !== 'COMPARE' && el.kind !== 'EDGE')) continue;
+      if (left[r][c] && right[r][c + 1]) continue;
+      const label =
+        el.kind === 'CONTACT'
+          ? el.address
+          : el.kind === 'COMPARE'
+            ? `${el.operandA}${el.operator}${el.operandB}`
+            : el.edge;
+      result.push({ row: r, col: c, label });
+    }
+  }
+  return result;
+}
+
 export function compileLadderToIl(program: LadderProgram): CompileResult {
   const diagnostics: CompileDiagnostic[] = [];
   const rawInstructions: Omit<IlInstruction, 'stepAddress'>[] = [];
@@ -1027,6 +1098,19 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
         colIndex: firstCol,
       });
       return;
+    }
+
+    const unconnected = findUnconnectedLogicCells(rung);
+    if (unconnected.length > 0) {
+      const names = [...new Set(unconnected.map((u) => u.label))].join(', ');
+      diagnostics.push({
+        severity: 'warning',
+        code: 'OPEN_BRANCH',
+        message: `Ağ ${String(rungIndex).padStart(3, '0')}: ${names} hiçbir çıkışa bağlı değil; komut listesine yazılmaz ve devreye etkisi yoktur. Paralel kolu (F10) veya yatay çizgiyi (F9) tamamlayın.`,
+        rungIndex,
+        rowIndex: unconnected[0].row,
+        colIndex: unconnected[0].col,
+      });
     }
 
     // Collect valid per-output branches sorted top-to-bottom by rowIndex

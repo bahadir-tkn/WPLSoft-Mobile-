@@ -473,8 +473,8 @@ test('Simulator: LDP rising-edge MOV K100 D0 and LD>= D0 K50 comparison energize
   assert.equal(state.outputs['Y3'], false);
 });
 
-test('Templates: All 9 industrial & textbook templates compile cleanly with zero errors/warnings and no line numbers', () => {
-  assert.equal(INDUSTRIAL_TEMPLATES.length, 9);
+test('Templates: All 10 industrial, textbook & experiment templates compile cleanly with zero errors/warnings and no line numbers', () => {
+  assert.equal(INDUSTRIAL_TEMPLATES.length, 10);
   for (const tpl of INDUSTRIAL_TEMPLATES) {
     const targetModel = tpl.requiredModel ?? 'DVP-14SS2';
     const program = tpl.buildProgram(targetModel);
@@ -685,13 +685,13 @@ test('DVP-SX2 addressing: supports extended octal X/Y377, M4095, T255, C254, D99
   assert.equal(validateZrstRange('Y0', 'M5', 'DVP-SX2').valid, false); // mismatched prefix
 });
 
-test('ALT Flip-Flop instruction toggles target output once per rising edge', () => {
-  const parsed = parseIlToLadder(['LD X0', 'ALT Y0', 'END'].join('\n'), 'DVP-SX2', 'Alt_Test');
+test('ALTP toggles once per rising edge; ALT toggles every scan while ON (Delta API 66)', () => {
+  const parsed = parseIlToLadder(['LD X0', 'ALTP Y0', 'LD X1', 'ALT Y1', 'END'].join('\n'), 'DVP-SX2', 'Alt_Test');
   assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
   const program = parsed.program!;
 
-  // Round-trip IL fidelity
-  assert.equal(compileLadderToIl(program).rawIlText, ['LD X0', 'ALT Y0', 'END'].join('\n'));
+  // Round-trip IL fidelity (ALTP is no longer turned into ALT)
+  assert.equal(compileLadderToIl(program).rawIlText, ['LD X0', 'ALTP Y0', 'LD X1', 'ALT Y1', 'END'].join('\n'));
 
   let state = createInitialSimState();
   state = executeScanCycle(program, state, 20);
@@ -701,7 +701,7 @@ test('ALT Flip-Flop instruction toggles target output once per rising edge', () 
   state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: true } }, 20);
   assert.equal(state.outputs['Y0'], true);
   state = executeScanCycle(program, state, 20);
-  assert.equal(state.outputs['Y0'], true, 'ALT must not flicker while input remains HIGH');
+  assert.equal(state.outputs['Y0'], true, 'ALTP must not flicker while input remains HIGH');
 
   // Release X0 -> Y0 remains ON
   state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: false } }, 20);
@@ -710,6 +710,15 @@ test('ALT Flip-Flop instruction toggles target output once per rising edge', () 
   // Rising edge #2: X0 = 1 -> Y0 toggles OFF
   state = executeScanCycle(program, { ...state, inputs: { ...state.inputs, X0: true } }, 20);
   assert.equal(state.outputs['Y0'], false);
+
+  // Plain ALT behaves like the real PLC: toggles on every scan while X1 is ON
+  const seen: boolean[] = [];
+  state = { ...state, inputs: { ...state.inputs, X1: true } };
+  for (let i = 0; i < 4; i += 1) {
+    state = executeScanCycle(program, state, 20);
+    seen.push(Boolean(state.outputs['Y1']));
+  }
+  assert.deepEqual(seen, [true, false, true, false]);
 });
 
 test('ZRST resets contiguous Y outputs and C counters in bulk', () => {
@@ -2890,4 +2899,68 @@ test('Experiments: Deney 5 pumps alternate above %50 and stop at %100; Deney 6 r
   assert.equal(s6[3].outputs.Y1, false, 'foam stops after 15 s');
   assert.equal(s6[3].relays.M0, false, 'coin consumed');
   assert.equal(s6[4].outputs.Y2, false, 'water needs a new coin');
+});
+
+test('Experiments: Deney 4 washing machine runs water → heat → detergent → 4× right/left → drain → all off', () => {
+  const tpl = getTemplateById('deney4-camasir-makinesi');
+  assert.equal(tpl.id, 'deney4-camasir-makinesi');
+  const program = tpl.buildProgram('DVP-SX2');
+  const compiled = compileLadderToIl(program);
+  assert.equal(compiled.diagnostics.length, 0, JSON.stringify(compiled.diagnostics));
+  // Föydeki diyagramın komut listesi aynen korunur (TMR/CNT/ZRST kaybolmaz).
+  for (const line of ['TMR T3 K50', 'TMR T0 K20', 'TMR T1 K20', 'CNT C0 K4', 'TMR T2 K100', 'ZRST Y0 Y5']) {
+    assert.ok(compiled.rawIlText.includes(line), line);
+  }
+  assert.ok(program.rungs.some((r) => r.comment?.includes('4 KEZ')), 'rung titles kept');
+
+  let state = createInitialSimState();
+  const phases: string[] = [];
+  let last = '';
+  const events: Record<number, Record<string, boolean>> = {
+    5: { X0: true },
+    10: { X0: false },
+    50: { X1: true },
+    60: { X2: true },
+  };
+  for (let scan = 0; scan < 2000; scan += 1) {
+    if (events[scan]) state = { ...state, inputs: { ...state.inputs, ...events[scan] } };
+    state = executeScanCycle(program, state, 20);
+    const on = ['Y0', 'Y1', 'Y2', 'Y3', 'Y4', 'Y5'].filter((y) => state.outputs[y]).join('+') || '-';
+    if (on !== last) {
+      phases.push(on);
+      last = on;
+    }
+  }
+  // Sola dönüş bitince (T1) aynı taramada sağa dönüş biti kurulur; Y0 bir sonraki taramada açılır.
+  assert.deepEqual(phases, [
+    '-',
+    'Y2', // su al
+    'Y5', // ısıtıcı
+    'Y3', // deterjan
+    'Y0', 'Y1', '-', // 1. tur
+    'Y0', 'Y1', '-', // 2. tur
+    'Y0', 'Y1', '-', // 3. tur
+    'Y0', 'Y1', // 4. tur → C0 = 4
+    'Y4', // tahliye
+    '-', // ZRST Y0 Y5
+  ]);
+  assert.equal(state.counters.C0?.currentValue, 4);
+  assert.equal(state.relays.M0, false, 'machine stopped');
+  assert.equal(state.relays.M16, true);
+});
+
+test('Compiler warns when a drawn contact is not connected to any output (it would be silently dropped)', () => {
+  const program = parseIlToLadder('LD M0\nAND M14\nSET Y1\nTMR T1 K20\nAND T1\nRST Y1\nEND', 'DVP-SX2').program!;
+  assert.equal(compileLadderToIl(program).diagnostics.length, 0);
+  // Kullanıcı T1 kontağını çizmiş ama kolu üst satıra bağlamamış:
+  const rung = program.rungs[0];
+  const t1Row = rung.rows.findIndex((row) => row.some((c) => c.element.kind === 'CONTACT' && c.element.address === 'T1'));
+  rung.rows[t1Row - 1].forEach((c) => (c.branchDown = false));
+  const t1Col = rung.rows[t1Row].findIndex((c) => c.element.kind === 'CONTACT' && c.element.address === 'T1');
+  rung.rows[t1Row][t1Col + 1] = { branchDown: false, element: { kind: 'EMPTY' } };
+  const compiled = compileLadderToIl(program);
+  assert.ok(
+    compiled.diagnostics.some((d) => d.severity === 'warning' && d.message.includes('T1 hiçbir çıkışa bağlı değil')),
+    JSON.stringify(compiled.diagnostics)
+  );
 });
