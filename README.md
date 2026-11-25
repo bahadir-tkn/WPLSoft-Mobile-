@@ -34,6 +34,20 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 - **Kablo bağlantı rehberi:** Hangi kablonun PLC'nin hangi ucuna takılacağını adım adım gösterir.
 - **Hazır örnekler:** Mühürleme (start-stop), yıldız-üçgen, ileri-geri, trafik lambası gibi devreleri tek dokunuşla açın.
 
+## Ders Kitabıyla Uyum
+
+Uygulama, *Delta DVP-PLC Serisi Programlama ve Otomasyon* kitabındaki konuları destekler:
+
+- Temel komutlar, zamanlayıcılar (100 ms / 10 ms / 1 ms), sayıcılar, özel röleler (`M1000`, `M1002`, `M1013`…)
+- Karşılaştırma, `MOV`, `CMP`, aritmetik ve ondalıklı işlemler, SX2 analog girişler (`D1110`…)
+- Gerçek zaman saati (`D1313`–`D1319`, `TRD`, `TWRP`, `TZCP`)
+- Adım (SFC) programlama: `S` adımları, `STL` ve `RET`
+- Diyagramlardaki **↑ / ↓** sonuç kenarı (`NP` / `PN`) ve WPLSoft'un "çıkıştan sonra AND" yazımı
+- Genişleme modülü adresleri (ör. pnömatik uygulamadaki `X20`–`X27`, `Y20`–`Y27`)
+
+> Not: Kitaptaki bazı çizimlerde hatalar var (ör. aynı çıkışın iki ayrı satırda `OUT` olarak kullanılması).
+> Uygulama bu durumları "Derleme Çıktısı" bölümünde uyarı olarak gösterir.
+
 ## Kısa Kullanım
 
 | Tuş | Ne yapar? |
@@ -46,6 +60,7 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 | **F9** | Yatay çizgi |
 | **F10** | Paralel kol — seçili hücrenin **solundan** aşağı iner (gerçek WPLSoft gibi) |
 | **F11** | Yeni satır ekle |
+| **F1** penceresinde | NP ↑, PN ↓, STL (adım), RET seçenekleri |
 | **F12** veya **Del** | Sil |
 | **Enter** | Seçili elemanı düzenle |
 | **Ctrl+Z / Ctrl+Y** | Geri al / İleri al |

@@ -2341,7 +2341,25 @@ test('Audit 3: Nested MPS / MRD / MPP parses cleanly and round-trips Ladder <-> 
   assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
   const compiled = compileLadderToIl(parsed.program!);
   assert.equal(compiled.hasErrors, false, JSON.stringify(compiled.diagnostics));
-  assert.equal(compiled.rawIlText, nestedIl);
+  // WPLSoft, koşulsuz çıkışlardan sonra tek koşullu dal kaldığında MPS yerine
+  // "çıkıştan sonra AND" biçimini üretir; aynı devre bu kısa biçimde derlenmelidir.
+  const compactIl = [
+    'LD M0',
+    'AND M14',
+    'SET Y1',
+    'TMR T1 K20',
+    'AND T1',
+    'RST Y1',
+    'CNT C0 K4',
+    'AND C0',
+    'SET M15',
+    'END',
+  ].join('\n');
+  assert.equal(compiled.rawIlText, compactIl);
+  // Kısa biçim de aynı Ladder'a dönüşür (gidiş-dönüş).
+  const reparsed = parseIlToLadder(compactIl, 'DVP-SX2', 'Compact');
+  assert.equal(reparsed.success, true, JSON.stringify(reparsed.errors));
+  assert.equal(compileLadderToIl(reparsed.program!).rawIlText, compactIl);
 
   // Also test parent MRD after a completed nested MPS...MPP branch
   const parentMrdIl = [
@@ -2728,4 +2746,108 @@ test('Comments survive a commented-IL export and re-import (device + segment com
   const ss = getTemplateById('start-stop').buildProgram('DVP-14SS2');
   assert.equal(buildDeviceCommentListText(ss), 'X0\tStart\nX1\tStop\nY0\tMotor');
   assert.match(buildCommentedIlText(ss, compileLadderToIl(ss)), /LD X0\s+\/\/ Start/);
+});
+
+// ---------------------------------------------------------------------------
+// Ders kitabı uyumluluğu (Delta DVP-PLC Serisi Programlama ve Otomasyon)
+// ---------------------------------------------------------------------------
+
+function runScans(
+  program: LadderProgram,
+  steps: Array<[Record<string, boolean>, number]>
+) {
+  let state = createInitialSimState();
+  const snapshots: ReturnType<typeof createInitialSimState>[] = [];
+  for (const [inputs, scans] of steps) {
+    state = { ...state, inputs: { ...state.inputs, ...inputs } };
+    for (let i = 0; i < scans; i += 1) state = executeScanCycle(program, state, 20);
+    snapshots.push(state);
+  }
+  return snapshots;
+}
+
+test('Book: WPLSoft "AND after output" form parses and compiles back identically (flip-flop, Şekil 3.9)', () => {
+  const il = [
+    'LD M1',
+    'ANI M10',
+    'TMR T0 K200',
+    'SET Y0',
+    'AND T0',
+    'RST Y0',
+    'SET M11',
+    'SET M10',
+    'END',
+  ].join('\n');
+  const parsed = parseIlToLadder(il, 'DVP-SX2');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  assert.equal(compileLadderToIl(parsed.program!).rawIlText, il);
+});
+
+test('Book: NP (↑) counts once per rising edge of the series result (Şekil 4.4)', () => {
+  const parsed = parseIlToLadder('LD X2\nAND Y0\nNP\nINC D0\nLD X0\nOUT Y0\nEND', 'DVP-SX2');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  assert.equal(compileLadderToIl(parsed.program!).rawIlText, 'LD X2\nAND Y0\nNP\nINC D0\nLD X0\nOUT Y0\nEND');
+  const snaps = runScans(parsed.program!, [
+    [{ X0: true }, 2],
+    [{ X2: true }, 5],
+    [{ X2: false }, 2],
+    [{ X2: true }, 5],
+  ]);
+  assert.equal(snaps[1].registers.D0, 1);
+  assert.equal(snaps[3].registers.D0, 2);
+});
+
+test('Book: STL step ladder (SFC, Şekil 10.17) — steps transfer and outputs follow the active step', () => {
+  const il = [
+    'LD M1002',
+    'ZRST S0 S127',
+    'SET S0',
+    'STL S0',
+    'SET S10',
+    'STL S10',
+    'OUT Y20',
+    'LD X20',
+    'SET S11',
+    'STL S11',
+    'OUT Y21',
+    'OUT Y20',
+    'LD X23',
+    'SET S0',
+    'RET',
+    'END',
+  ].join('\n');
+  const parsed = parseIlToLadder(il, 'DVP-SX2');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const compiled = compileLadderToIl(parsed.program!);
+  assert.equal(compiled.rawIlText, il);
+  // Aynı çıkışın (Y20) farklı adımlarda kullanılması çift bobin değildir.
+  assert.equal(compiled.diagnostics.length, 0, JSON.stringify(compiled.diagnostics));
+  // Kaydedilip yeniden açılabilir.
+  assert.equal(parseProgramJson(serializeProgramJson(parsed.program!)).success, true);
+
+  const snaps = runScans(parsed.program!, [
+    [{}, 3],
+    [{ X20: true }, 3],
+    [{ X20: false, X23: true }, 3],
+  ]);
+  assert.equal(snaps[0].relays.S10, true);
+  assert.equal(snaps[0].outputs.Y20, true);
+  assert.equal(snaps[1].relays.S10, false);
+  assert.equal(snaps[1].relays.S11, true);
+  assert.equal(snaps[1].outputs.Y21, true);
+  assert.equal(snaps[1].outputs.Y20, true, 'Y20 is also driven in S11');
+  assert.equal(snaps[2].relays.S11, false);
+  assert.equal(snaps[2].outputs.Y21, false);
+  assert.equal(snaps[2].relays.S10, true);
+});
+
+test('Book: S step relays are valid addresses; STL must be on its own rung', () => {
+  assert.equal(validateAddress('S1023', 'bit_contact', 'DVP-SX2').valid, true);
+  assert.equal(validateAddress('S1024', 'bit_contact', 'DVP-SX2').valid, false);
+  assert.equal(validateAddress('S10', 'word_dest', 'DVP-SX2').valid, false);
+  const program = createBlankProgram('DVP-SX2', 'stl', 2);
+  program.rungs[0].rows[0][0] = { branchDown: false, element: { kind: 'STL', address: 'S10' } };
+  program.rungs[0].rows[0][1] = { branchDown: false, element: { kind: 'HLINE' } };
+  const compiled = compileLadderToIl(program);
+  assert.ok(compiled.diagnostics.some((d) => d.severity === 'error' && /tek başına/.test(d.message)));
 });

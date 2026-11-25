@@ -273,7 +273,7 @@ export function usePlcSimulator(
     (address: string) => {
       const norm = address.trim().toUpperCase();
       const prefix = norm[0];
-      if (prefix !== 'X' && prefix !== 'M') return;
+      if (prefix !== 'X' && prefix !== 'M' && prefix !== 'S') return;
       if (prefix === 'M' && SPECIAL_RELAYS[norm]?.readOnly) return;
 
       const existingTimer = pulseTimersRef.current.get(norm);

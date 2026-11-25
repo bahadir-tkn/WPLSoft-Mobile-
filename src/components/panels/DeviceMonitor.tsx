@@ -104,19 +104,54 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
 
   const referenced = useMemo(() => collectReferencedDevices(program), [program]);
 
+  // Programda kullanılan genişleme modülü adresleri (ör. kitaptaki X20–X27 / Y20–Y27) her zaman görünür.
+  const referencedIo = useMemo(() => {
+    const xs = new Set<string>();
+    const ys = new Set<string>();
+    for (const rung of program.rungs) {
+      for (const row of rung.rows) {
+        for (const cell of row) {
+          for (const value of Object.values(cell.element)) {
+            if (typeof value !== 'string') continue;
+            const v = value.trim().toUpperCase();
+            if (/^X[0-7]+$/.test(v)) xs.add(v);
+            else if (/^Y[0-7]+$/.test(v)) ys.add(v);
+          }
+        }
+      }
+    }
+    return { xs: Array.from(xs), ys: Array.from(ys) };
+  }, [program]);
+
+  const octalSort = (a: string, b: string) =>
+    Number.parseInt(a.slice(1), 8) - Number.parseInt(b.slice(1), 8);
+
   const visibleInputs = useMemo(
-    () => (showExpansionInputs ? ALL_OCTAL_INPUTS : modelSpec.onboardInputs),
-    [modelSpec.onboardInputs, showExpansionInputs]
+    () =>
+      Array.from(
+        new Set([
+          ...(showExpansionInputs ? ALL_OCTAL_INPUTS : modelSpec.onboardInputs),
+          ...referencedIo.xs,
+        ])
+      ).sort(octalSort),
+    [modelSpec.onboardInputs, showExpansionInputs, referencedIo.xs]
   );
 
   const visibleOutputs = useMemo(
-    () => (showExpansionOutputs ? ALL_OCTAL_OUTPUTS : modelSpec.onboardOutputs),
-    [modelSpec.onboardOutputs, showExpansionOutputs]
+    () =>
+      Array.from(
+        new Set([
+          ...(showExpansionOutputs ? ALL_OCTAL_OUTPUTS : modelSpec.onboardOutputs),
+          ...referencedIo.ys,
+        ])
+      ).sort(octalSort),
+    [modelSpec.onboardOutputs, showExpansionOutputs, referencedIo.ys]
   );
 
+  // Yardımcı röleler ve programda kullanılan adım röleleri (S)
   const relayList = useMemo(
-    () => mergeUniqueDevices(referenced.relays, DEFAULT_RELAYS),
-    [referenced.relays]
+    () => [...mergeUniqueDevices(referenced.relays, DEFAULT_RELAYS), ...referenced.steps],
+    [referenced.relays, referenced.steps]
   );
   const timerList = useMemo(
     () => mergeUniqueDevices(referenced.timers, DEFAULT_TIMERS),
@@ -594,7 +629,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
               {/* Special & Auxiliary Relays (M) */}
               <div className="bg-white border border-[#CBD2DC] rounded p-2.5 space-y-2">
                 <h2 className="text-xs font-bold text-[#0F172A]">
-                  Özel &amp; Yardımcı Röleler (M)
+                  {referenced.steps.length > 0 ? "Özel & Yardımcı Röleler (M) · Adımlar (S)" : "Özel & Yardımcı Röleler (M)"}
                 </h2>
                 <div className="grid grid-cols-2 gap-1">
                   {Object.values(SPECIAL_RELAYS).map((sr) => {
@@ -639,7 +674,11 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
                         type="button"
                         data-testid={`relay-${addr}`}
                         onClick={() => onToggleRelayBit(addr)}
-                        title={`${addr} yardımcı rölesini zorla (Force)`}
+                        title={
+                          addr.startsWith('S')
+                            ? `${addr} adım rölesini aç / kapat`
+                            : `${addr} yardımcı rölesini zorla (Force)`
+                        }
                         className={`min-h-[38px] rounded border px-1.5 py-1 flex flex-col items-center justify-center font-mono text-[11px] transition-colors cursor-pointer ${
                           isOn
                             ? 'bg-[#00C853] border-[#00963F] text-white font-bold'

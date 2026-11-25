@@ -280,6 +280,8 @@ function logicNodeSignature(node: LogicNode): string {
         return `C:${el.contactType}:${el.address}`;
       case 'COMPARE':
         return `K:${el.operator}:${el.operandA}:${el.operandB}`;
+      case 'EDGE':
+        return `E:${el.edge}`;
       default:
         return el.kind;
     }
@@ -489,7 +491,7 @@ export function commentTargetForInstruction(opcode: string, tokens: string[]): s
   else if (['CMP', 'ADD', 'SUB', 'MUL', 'DIV', 'DADDR', 'DSUBR', 'DMULR', 'DDIVR'].includes(op)) idx = 3;
   else if (op === 'TZCP') idx = 4;
   const raw = tokens[idx]?.toUpperCase();
-  return raw && /^[XYMTCD]\d{1,5}$/.test(raw) ? raw : null;
+  return raw && /^[XYMSTCD]\d{1,5}$/.test(raw) ? raw : null;
 }
 
 /**
@@ -550,6 +552,10 @@ export function parseIlToLadder(
   const mpsStack: MpsFrame[] = [];
   let leafBranches: MpsLeafBranch[] = [];
   let inOutputPhase = false;
+  // WPLSoft "çıkıştan sonra devam" biçimi: OUT/SET... komutlarından sonra gelen AND/ANI/ANDP/AND=...
+  // aynı ağın çıkış dalına yeni bir koşul ekler (ör. TMR T0 K200 / SET Y0 / AND T0 / RST Y0).
+  // Bu durumda ağ, MPS ile aynı dal yapısıyla (leafBranches) kurulur.
+  let continuationPrefix: LogicNode | null = null;
   let sawEnd = false;
   let pendingRungComment: string | undefined;
   // Satır sonu açıklamaları (ör. "LD X0 // Start") aygıt açıklaması olarak alınır.
@@ -573,6 +579,20 @@ export function parseIlToLadder(
   };
 
   const flushRung = (lineNumber: number, rawLine: string) => {
+    if (continuationPrefix && mpsStack.length === 0) {
+      const built = buildMpsRungFromLeafBranches(rungs.length, leafBranches);
+      if (built.error) {
+        errors.push({ lineNumber, rawLine, message: built.error });
+      } else if (built.rung) {
+        rungs.push(attachPendingComment(built.rung));
+      }
+      continuationPrefix = null;
+      leafBranches = [];
+      pendingOutputs = [];
+      inOutputPhase = false;
+      stack.length = 0;
+      return;
+    }
     if (mpsStack.length > 0) {
       if (mpsStack.some((frame) => !frame.sawMpp)) {
         warnings.push(
@@ -629,6 +649,11 @@ export function parseIlToLadder(
   };
 
   const pushOutputElement = (el: CellElement) => {
+    if (continuationPrefix && mpsStack.length === 0) {
+      leafBranches.push({ factors: flattenSeriesNodes(continuationPrefix), output: el });
+      inOutputPhase = true;
+      return;
+    }
     if (mpsStack.length > 0) {
       const logic = combineTopFrameLogic();
       leafBranches.push({
@@ -690,9 +715,38 @@ export function parseIlToLadder(
       return;
     }
 
-    if (mode === 'LD' && inOutputPhase) {
+    if (mode === 'AND' && (inOutputPhase || continuationPrefix)) {
+      // Çıkıştan sonra gelen AND: o ana kadarki çıkışlar mevcut koşulda kalır,
+      // sonraki çıkışlar (önceki koşul AND yeni kontak) dalına bağlanır.
+      if (!continuationPrefix) {
+        while (stack.length > 1) {
+          const right = stack.pop()!;
+          const left = stack.pop()!;
+          stack.push(makeSeries(left, right));
+        }
+        const base = stack.pop();
+        if (!base) {
+          errors.push({
+            lineNumber,
+            rawLine,
+            message: `${opcode} komutundan önce LD/LDI bulunmalıdır.`,
+          });
+          return;
+        }
+        for (const out of pendingOutputs) {
+          leafBranches.push({ factors: flattenSeriesNodes(base), output: out });
+        }
+        pendingOutputs = [];
+        continuationPrefix = base;
+      }
+      continuationPrefix = makeSeries(continuationPrefix, atom);
+      inOutputPhase = false;
+      return;
+    }
+
+    if (mode === 'LD' && (inOutputPhase || continuationPrefix)) {
       flushRung(lineNumber, rawLine);
-    } else if (mode !== 'LD' && inOutputPhase) {
+    } else if (mode === 'OR' && (inOutputPhase || continuationPrefix)) {
       errors.push({
         lineNumber,
         rawLine,
@@ -736,7 +790,7 @@ export function parseIlToLadder(
       if (trimmedRaw.startsWith('//') || trimmedRaw.startsWith(';')) {
         const commentBody = trimmedRaw.replace(/^(\/\/|;)+\s*/, '').trim();
         if (commentBody) {
-          if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0) {
+          if (mpsStack.length > 0 || continuationPrefix || inOutputPhase || pendingOutputs.length > 0) {
             flushRung(lineNumber, rawLine);
           }
           pendingRungComment = pendingRungComment
@@ -760,7 +814,7 @@ export function parseIlToLadder(
     }
 
     if (opcode === 'END') {
-      if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
+      if (mpsStack.length > 0 || continuationPrefix || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
         flushRung(lineNumber, rawLine);
       }
       sawEnd = true;
@@ -771,6 +825,17 @@ export function parseIlToLadder(
 
     // Multi-output stack instructions: MPS / MRD / MPP (supports nested MPS blocks)
     if (opcode === 'MPS') {
+      if (continuationPrefix && mpsStack.length === 0) {
+        mpsStack.push({
+          prefix: continuationPrefix,
+          branchStack: [],
+          branchHasOutput: false,
+          sawMpp: false,
+        });
+        continuationPrefix = null;
+        inOutputPhase = false;
+        continue;
+      }
       if (mpsStack.length > 0) {
         mpsStack.push({
           prefix: combineTopFrameLogic(),
@@ -836,6 +901,50 @@ export function parseIlToLadder(
         topFrame.sawMpp = true;
       }
       inOutputPhase = false;
+      continue;
+    }
+
+    // NP / PN: o ana kadarki seri bağlantının sonucunun yükselen / düşen kenarı
+    if (opcode === 'NP' || opcode === 'PN') {
+      applyLogicAtom(
+        'AND',
+        { type: 'ATOM', element: { kind: 'EDGE', edge: opcode } },
+        opcode,
+        lineNumber,
+        rawLine
+      );
+      continue;
+    }
+
+    // Adım (step ladder) komutları: STL Sn ... RET
+    if (opcode === 'STL' || opcode === 'RET') {
+      if (mpsStack.length > 0 || continuationPrefix || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
+        flushRung(lineNumber, rawLine);
+      }
+      let headerElement: CellElement;
+      if (opcode === 'STL') {
+        const addrToken = tokens[1];
+        const check = addrToken ? validateAddress(addrToken, 'bit_contact', model) : null;
+        if (!check || !check.valid || !check.parsed || check.parsed.prefix !== 'S') {
+          errors.push({
+            lineNumber,
+            rawLine,
+            message: 'STL komutu bir adım rölesi gerektirir (örn. STL S10).',
+          });
+          continue;
+        }
+        headerElement = { kind: 'STL', address: check.parsed.normalized };
+      } else {
+        headerElement = { kind: 'RET' };
+      }
+      const headerRow = createEmptyRow(LADDER_TOTAL_COLUMNS);
+      headerRow[0] = { ...headerRow[0], element: headerElement };
+      rungs.push(
+        attachPendingComment({
+          id: `rung-il-${opcode.toLowerCase()}-${rungs.length}-${Date.now().toString(36)}`,
+          rows: [headerRow],
+        })
+      );
       continue;
     }
 
@@ -1475,7 +1584,7 @@ export function parseIlToLadder(
   }
 
   // Flush final pending rung if END was omitted
-  if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
+  if (mpsStack.length > 0 || continuationPrefix || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
     flushRung(lines.length, lines[lines.length - 1] ?? '');
   }
 

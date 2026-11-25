@@ -1,6 +1,6 @@
 export type PlcModelId = 'DVP-SX2' | 'DVP-14SS2' | 'DVP-12SA2';
 
-export type DevicePrefix = 'X' | 'Y' | 'M' | 'T' | 'C' | 'D' | 'K' | 'F';
+export type DevicePrefix = 'X' | 'Y' | 'M' | 'S' | 'T' | 'C' | 'D' | 'K' | 'F';
 
 export type AddressRole =
   | 'any'
@@ -62,6 +62,8 @@ export interface PlcModelSpec {
   allInputs: string[];
   allOutputs: string[];
   relayRange: { min: number; max: number };
+  /** Adım (step) röleleri S0–S1023 (STL / SFC adımları) */
+  stepRange: { min: number; max: number };
   timerRange: { min: number; max: number; timeBaseMs: number };
   counterRange: { min: number; max: number };
   registerRange: { min: number; max: number };
@@ -193,6 +195,12 @@ export type CellElement =
       destination: string;
       comment?: string;
     }
+  /** NP / PN: önündeki kontak dizisinin sonucunun yükselen (↑) / düşen (↓) kenarı */
+  | { kind: 'EDGE'; edge: 'NP' | 'PN' }
+  /** STL Sn: adım (step ladder) başlığı — yalnızca kendi ağının ilk hücresinde bulunur */
+  | { kind: 'STL'; address: string; comment?: string }
+  /** RET: adım (STL) bloklarının sonu — yalnızca kendi ağının ilk hücresinde bulunur */
+  | { kind: 'RET' }
   | { kind: 'END' };
 
 export interface LadderCellData {
@@ -288,6 +296,10 @@ export type IlOpcode =
   | 'TWR'
   | 'TWRP'
   | 'TZCP'
+  | 'NP'
+  | 'PN'
+  | 'STL'
+  | 'RET'
   | 'END';
 
 export interface IlInstruction {

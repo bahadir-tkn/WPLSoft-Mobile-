@@ -16,7 +16,7 @@ import {
   insertRungAfter,
 } from '../core/gridFactory';
 import { compileLadderToIl } from '../core/ilCompiler';
-import { isLogicElement, isOutputElement } from '../core/ast';
+import { getStepHeader, isLogicElement, isOutputElement } from '../core/ast';
 import {
   applyQuickCommandOnProgram,
   commitHistory,
@@ -344,7 +344,12 @@ export function useLadderEditor(
         element,
       };
 
-      if (pos.colIndex === LADDER_COIL_COLUMN && isOutputElement(element)) {
+      if (element.kind === 'STL' || element.kind === 'RET') {
+        // Adım başlığı ağın tek elemanıdır: satırın geri kalanı ve dallar temizlenir.
+        const headerRow = createEmptyRow(baseProgram.columns);
+        headerRow[0] = { branchDown: false, element };
+        rung.rows = [headerRow];
+      } else if (pos.colIndex === LADDER_COIL_COLUMN && isOutputElement(element)) {
         autoBridgeRowToOutput(row);
         if (pos.rowIndex > 0) {
           const hasOwnLogic = row
@@ -504,6 +509,10 @@ export function useLadderEditor(
       const targetRung = program.rungs[pos.rungIndex];
       const currentCell = targetRung?.rows[pos.rowIndex]?.[pos.colIndex];
       if (!targetRung || targetRung.isEnd || !currentCell) return;
+      if (getStepHeader(targetRung)) {
+        onNotify('Bu ağ bir adım başlığıdır (STL/RET); yatay hat eklenemez.');
+        return;
+      }
 
       const willAddHLine = currentCell.element.kind !== 'HLINE';
       commitProgramUpdate((current) => {
@@ -540,6 +549,10 @@ export function useLadderEditor(
       const targetRung = program.rungs[pos.rungIndex];
       const currentCell = targetRung?.rows[pos.rowIndex]?.[anchorCol];
       if (!targetRung || targetRung.isEnd || !currentCell) return;
+      if (getStepHeader(targetRung)) {
+        onNotify('Bu ağ bir adım başlığıdır (STL/RET); paralel kol eklenemez.');
+        return;
+      }
 
       const willAddBranch = !currentCell.branchDown;
       const isLastRow = pos.rowIndex === targetRung.rows.length - 1;
@@ -547,7 +560,12 @@ export function useLadderEditor(
       // WPLSoft'ta satırlar serbesttir: alttaki satıra önce kontak konup sonra dikey çizgi
       // çekilebilir. Bu durumda alttaki (dolu) ağ, bu ağın devamı olarak birleştirilir.
       const willMergeBelow =
-        willAddBranch && isLastRow && Boolean(belowRung) && !belowRung.isEnd && rungHasContent(belowRung);
+        willAddBranch &&
+        isLastRow &&
+        Boolean(belowRung) &&
+        !belowRung.isEnd &&
+        !getStepHeader(belowRung) &&
+        rungHasContent(belowRung);
       const nextRowCount = willMergeBelow
         ? targetRung.rows.length + belowRung.rows.length
         : targetRung.rows.length + (willAddBranch && isLastRow ? 1 : 0);
@@ -787,8 +805,23 @@ export function useLadderEditor(
       if (!rung || rung.isEnd) return;
       const row = rung.rows[cursor.rowIndex];
       if (!row) return;
+      if (getStepHeader(rung) && element.kind !== 'STL' && element.kind !== 'RET') {
+        onNotify('Bu ağ bir adım başlığıdır (STL/RET). Adımın komutları için altına yeni bir ağ ekleyin (F11).');
+        return;
+      }
 
       let targetCol = cursor.colIndex;
+      if (element.kind === 'STL' || element.kind === 'RET') {
+        const isEmptyRung = rung.rows.every((r) =>
+          r.every((c) => (c.element.kind === 'EMPTY' && !c.branchDown) || c.element.kind === 'STL' || c.element.kind === 'RET')
+        );
+        if (!isEmptyRung) {
+          onNotify('STL ve RET yalnızca boş bir ağa yerleştirilebilir. Önce F11 ile yeni bir ağ ekleyin.');
+          return;
+        }
+        targetCol = 0;
+        setCursor({ rungIndex: cursor.rungIndex, rowIndex: 0, colIndex: 0 });
+      }
       if (isOutputElement(element)) {
         targetCol = LADDER_COIL_COLUMN;
       } else if (targetCol >= LADDER_COIL_COLUMN) {

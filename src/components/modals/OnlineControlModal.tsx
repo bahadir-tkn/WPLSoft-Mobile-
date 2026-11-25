@@ -35,7 +35,7 @@ function readLiveBit(address: string, simState: SimState): boolean {
   const norm = address.trim().toUpperCase();
   if (norm.startsWith('X')) return Boolean(simState.inputs[norm]);
   if (norm.startsWith('Y')) return Boolean(simState.outputs[norm]);
-  if (norm.startsWith('M')) return Boolean(simState.relays[norm]);
+  if (norm.startsWith('M') || norm.startsWith('S')) return Boolean(simState.relays[norm]);
   if (norm.startsWith('T')) return Boolean(simState.timers[norm]?.done);
   if (norm.startsWith('C')) return Boolean(simState.counters[norm]?.done);
   return false;
@@ -94,7 +94,7 @@ export const OnlineControlModal: React.FC<OnlineControlModalProps> = ({
   if (target.mode === 'bit') {
     const addr = target.address.trim().toUpperCase();
     const isInput = addr.startsWith('X');
-    const isRelay = addr.startsWith('M');
+    const isRelay = addr.startsWith('M') || addr.startsWith('S');
     const isReadOnly =
       (!isInput && !isRelay) || (isRelay && Boolean(SPECIAL_RELAYS[addr]?.readOnly));
     const currentOn = readLiveBit(addr, simState);

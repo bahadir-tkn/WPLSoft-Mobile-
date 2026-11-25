@@ -39,7 +39,7 @@ export function buildCommentedIlText(program: LadderProgram, compiled: CompileRe
 
 /** Yalnızca açıklaması olan aygıtları adres sırasına göre listeler. */
 export function listDeviceComments(program: LadderProgram): { address: string; comment: string }[] {
-  const order = 'XYMTCD';
+  const order = 'XYMSTCD';
   return Object.entries(program.deviceComments)
     .filter(([, c]) => c.trim())
     .map(([address, comment]) => ({ address, comment: comment.trim() }))

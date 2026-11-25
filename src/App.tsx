@@ -130,6 +130,15 @@ function buildOnlineTargetForElement(
       };
     }
 
+    case 'STL': {
+      const addr = el.address.trim().toUpperCase();
+      return {
+        mode: 'bit',
+        address: addr,
+        comment: deviceComments[addr] ?? el.comment,
+      };
+    }
+
     case 'ALT': {
       const addr = el.target.trim().toUpperCase();
       return {
@@ -726,6 +735,20 @@ export default function App() {
             onSave={editor.handleSaveModal}
             onDelete={editor.handleDeleteFromModal}
             onCancel={editor.handleCancelModal}
+            canPlaceStepHeader={(() => {
+              // STL / RET yalnızca boş bir ağın ilk hücresine konabilir.
+              const m = editor.editModal;
+              if (m.position.colIndex !== 0) return false;
+              const base = m.previousProgram ?? editor.program;
+              const rung = base.rungs[m.position.rungIndex];
+              if (!rung || rung.isEnd) return false;
+              return rung.rows.every((row, ri) =>
+                row.every(
+                  (cell, ci) =>
+                    (ri === 0 && ci === 0) || (cell.element.kind === 'EMPTY' && !cell.branchDown)
+                )
+              ) && !rung.rows[0][0].branchDown;
+            })()}
           />
         )}
 

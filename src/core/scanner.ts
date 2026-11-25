@@ -6,6 +6,7 @@ import type {
   SimState,
   TimerRuntime,
 } from '../types/plc';
+import { getStepHeader } from './ast';
 import {
   ALL_OCTAL_INPUTS,
   ALL_OCTAL_OUTPUTS,
@@ -286,6 +287,7 @@ export function executeScanCycle(
       if (addr === 'M1003') return !isFirstScan;
       return Boolean(relays[addr]);
     }
+    if (prefix === 'S') return Boolean(relays[addr]);
     if (prefix === 'T') return Boolean(timers[addr]?.done);
     if (prefix === 'C') return Boolean(counters[addr]?.done);
     return false;
@@ -298,6 +300,8 @@ export function executeScanCycle(
     if (prefix === 'Y') {
       outputs[addr] = value;
     } else if (prefix === 'M' && !SPECIAL_RELAYS[addr]?.readOnly) {
+      relays[addr] = value;
+    } else if (prefix === 'S') {
       relays[addr] = value;
     }
   };
@@ -370,6 +374,8 @@ export function executeScanCycle(
       outputs[norm] = false;
     } else if (prefix === 'M' && !SPECIAL_RELAYS[norm]?.readOnly) {
       relays[norm] = false;
+    } else if (prefix === 'S') {
+      relays[norm] = false;
     } else if (prefix === 'T') {
       const prevT = timers[norm];
       timers[norm] = {
@@ -393,11 +399,57 @@ export function executeScanCycle(
     }
   };
 
+  // Adım (STL) bağlamı: STL Sn başlığından RET'e kadar olan ağlar yalnızca Sn etkinken çalışır.
+  let stepCtx: {
+    address: string;
+    active: boolean;
+    wasActive: boolean;
+    transferred: boolean;
+  } | null = null;
+  const finishStepBlock = () => {
+    // Adım içinde başka bir adıma geçiş (SET Sx) olduysa mevcut adım kapanır.
+    if (stepCtx?.transferred) {
+      relays[stepCtx.address] = false;
+    }
+    stepCtx = null;
+  };
+
   // Evaluate each rung top-to-bottom until END
   for (let rungIndex = 0; rungIndex < program.rungs.length; rungIndex += 1) {
     const rung = program.rungs[rungIndex];
     if (rung.isEnd) {
+      finishStepBlock();
       break;
+    }
+
+    const stepHeader = getStepHeader(rung);
+    if (stepHeader) {
+      finishStepBlock();
+      if (stepHeader.kind === 'STL') {
+        const stepAddr = stepHeader.address;
+        touchedBitAddresses.add(stepAddr);
+        const active = readBit(stepAddr);
+        const memKey = `step:${stepAddr}`;
+        const wasActive = Boolean(prevEdgeStates[memKey]);
+        nextEdgeStates[memKey] = active || Boolean(nextEdgeStates[memKey]);
+        stepCtx = { address: stepAddr, active, wasActive, transferred: false };
+        if (active) {
+          energizedCells[cellKey(rungIndex, 0, 0)] = true;
+          energizedWires[leftWireKey(rungIndex, 0, 0)] = true;
+          conductingCells[cellKey(rungIndex, 0, 0)] = true;
+        }
+      }
+      continue;
+    }
+
+    // Adım gövdesi: etkin değilse çalışmaz; adımın kapandığı ilk taramada bir kez
+    // güçsüz çalıştırılır (OUT çıkışları ve zamanlayıcılar sıfırlansın diye).
+    let railPower = true;
+    if (stepCtx) {
+      if (!stepCtx.active) {
+        if (!stepCtx.wasActive) continue;
+        railPower = false;
+      }
     }
 
     const rowCount = rung.rows.length;
@@ -421,45 +473,88 @@ export function executeScanCycle(
     };
 
     const boundaryPower: boolean[][] = Array.from({ length: rowCount }, () =>
-      Array.from({ length: logicCols + 1 }, (_, b) => b === 0)
+      Array.from({ length: logicCols + 1 }, (_, b) => b === 0 && railPower)
     );
 
     const cellConducts: boolean[][] = Array.from({ length: rowCount }, (_, r) =>
       Array.from({ length: logicCols }, (_, c) => evalCellConductance(r, c))
     );
 
-    // Fixed-point electrical propagation across horizontal logic cells and vertical branchDown drops
-    let changed = true;
-    let safety = 0;
-    const maxIterations = Math.max(16, rowCount * (logicCols + 2) * 2);
-
-    while (changed && safety < maxIterations) {
-      changed = false;
-      safety += 1;
-
-      for (let r = 0; r < rowCount; r += 1) {
-        for (let c = 0; c < logicCols; c += 1) {
-          if (boundaryPower[r][c] && cellConducts[r][c] && !boundaryPower[r][c + 1]) {
-            boundaryPower[r][c + 1] = true;
-            changed = true;
-          }
+    // NP / PN hücreleri: sağ tarafın gücü, sol taraftaki gücün kenarına göre "zorlanır".
+    const edgeCells: { r: number; c: number; edge: 'NP' | 'PN'; memKey: string }[] = [];
+    for (let r = 0; r < rowCount; r += 1) {
+      for (let c = 0; c < logicCols; c += 1) {
+        const el = rung.rows[r]?.[c]?.element;
+        if (el?.kind === 'EDGE') {
+          edgeCells.push({ r, c, edge: el.edge, memKey: `edge:${cellKey(rungIndex, r, c)}` });
         }
       }
+    }
+    const edgeForced: boolean[][] = Array.from({ length: rowCount }, () =>
+      Array.from({ length: logicCols }, () => false)
+    );
 
-      for (let r = 0; r < rowCount - 1; r += 1) {
-        for (let c = 0; c < logicCols; c += 1) {
-          if (rung.rows[r]?.[c]?.branchDown) {
-            const b = c + 1;
-            const upper = boundaryPower[r][b];
-            const lower = boundaryPower[r + 1][b];
-            if (upper !== lower) {
-              boundaryPower[r][b] = true;
-              boundaryPower[r + 1][b] = true;
+    // Fixed-point electrical propagation across horizontal logic cells and vertical branchDown drops
+    const maxIterations = Math.max(16, rowCount * (logicCols + 2) * 2);
+    const runFixedPoint = () => {
+      for (let r = 0; r < rowCount; r += 1) {
+        for (let b = 0; b <= logicCols; b += 1) {
+          boundaryPower[r][b] = b === 0 && railPower;
+        }
+      }
+      let changed = true;
+      let safety = 0;
+      while (changed && safety < maxIterations) {
+        changed = false;
+        safety += 1;
+
+        for (let r = 0; r < rowCount; r += 1) {
+          for (let c = 0; c < logicCols; c += 1) {
+            if (
+              ((boundaryPower[r][c] && cellConducts[r][c]) || edgeForced[r][c]) &&
+              !boundaryPower[r][c + 1]
+            ) {
+              boundaryPower[r][c + 1] = true;
               changed = true;
             }
           }
         }
+
+        for (let r = 0; r < rowCount - 1; r += 1) {
+          for (let c = 0; c < logicCols; c += 1) {
+            if (rung.rows[r]?.[c]?.branchDown) {
+              const b = c + 1;
+              const upper = boundaryPower[r][b];
+              const lower = boundaryPower[r + 1][b];
+              if (upper !== lower) {
+                boundaryPower[r][b] = true;
+                boundaryPower[r + 1][b] = true;
+                changed = true;
+              }
+            }
+          }
+        }
       }
+    };
+
+    runFixedPoint();
+    // Kenar hücrelerinin çıkışı sol gücüne bağlı olduğundan, kararlı hâle gelene kadar tekrarla.
+    for (let pass = 0; pass <= edgeCells.length; pass += 1) {
+      let edgeChanged = false;
+      for (const ec of edgeCells) {
+        const left = boundaryPower[ec.r][ec.c];
+        const prevLeft = Boolean(prevEdgeStates[ec.memKey]);
+        const out = ec.edge === 'NP' ? left && !prevLeft : !left && prevLeft;
+        if (edgeForced[ec.r][ec.c] !== out) {
+          edgeForced[ec.r][ec.c] = out;
+          edgeChanged = true;
+        }
+      }
+      if (!edgeChanged) break;
+      runFixedPoint();
+    }
+    for (const ec of edgeCells) {
+      nextEdgeStates[ec.memKey] = boundaryPower[ec.r][ec.c];
     }
 
     const recordRowVisualPower = (r: number) => {
@@ -478,7 +573,7 @@ export function executeScanCycle(
         ) {
           conductingCells[cellKey(rungIndex, r, c)] = true;
         }
-        if (leftActive && cellConducts[r][c]) {
+        if ((leftActive && cellConducts[r][c]) || (cell.element.kind === 'EDGE' && rightActive)) {
           energizedCells[cellKey(rungIndex, r, c)] = true;
         }
         if (cell.branchDown && rightActive) {
@@ -517,8 +612,7 @@ export function executeScanCycle(
         for (let rr = executedRow + 1; rr < rowCount; rr += 1) {
           for (let c = 0; c < logicCols; c += 1) {
             if (
-              boundaryPower[rr][c] &&
-              cellConducts[rr][c] &&
+              ((boundaryPower[rr][c] && cellConducts[rr][c]) || edgeForced[rr][c]) &&
               !boundaryPower[rr][c + 1]
             ) {
               boundaryPower[rr][c + 1] = true;
@@ -570,7 +664,23 @@ export function executeScanCycle(
 
       if (el.kind === 'COIL') {
         const addr = el.address.trim().toUpperCase();
-        if (el.coilType === 'OUT') {
+        const isStepTransfer =
+          stepCtx !== null &&
+          stepCtx.active &&
+          addr.startsWith('S') &&
+          addr !== stepCtx.address &&
+          (el.coilType === 'SET' || el.coilType === 'OUT');
+        const isInactiveStepJump =
+          stepCtx !== null && !stepCtx.active && addr.startsWith('S') && el.coilType === 'OUT';
+        if (isInactiveStepJump) {
+          // Kapanan adımın sıfırlama taramasında hedef adımlara dokunulmaz.
+        } else if (isStepTransfer) {
+          // Adım geçişi: hedef adım açılır, bulunduğumuz adım blok sonunda kapanır.
+          if (rungPower && stepCtx) {
+            writeBit(addr, true);
+            stepCtx.transferred = true;
+          }
+        } else if (el.coilType === 'OUT') {
           writeBit(addr, rungPower);
         } else if (el.coilType === 'SET') {
           if (rungPower) writeBit(addr, true);
@@ -913,11 +1023,13 @@ export function executeScanCycle(
  */
 export function collectReferencedDevices(program: LadderProgram): {
   relays: string[];
+  steps: string[];
   timers: string[];
   counters: string[];
   registers: string[];
 } {
   const relays = new Set<string>();
+  const steps = new Set<string>();
   const timers = new Set<string>();
   const counters = new Set<string>();
   const registers = new Set<string>();
@@ -926,6 +1038,8 @@ export function collectReferencedDevices(program: LadderProgram): {
     const norm = raw.trim().toUpperCase();
     if (norm.startsWith('M') && !SPECIAL_RELAY_ADDRESSES.has(norm)) {
       relays.add(norm);
+    } else if (/^S\d+$/.test(norm)) {
+      steps.add(norm);
     } else if (norm.startsWith('T')) {
       timers.add(norm);
     } else if (norm.startsWith('C')) {
@@ -940,7 +1054,7 @@ export function collectReferencedDevices(program: LadderProgram): {
     for (const row of rung.rows) {
       for (const cell of row) {
         const el = cell.element;
-        if (el.kind === 'CONTACT' || el.kind === 'COIL') {
+        if (el.kind === 'CONTACT' || el.kind === 'COIL' || el.kind === 'STL') {
           registerAddr(el.address);
         } else if (el.kind === 'TMR' || el.kind === 'CNT') {
           registerAddr(el.address);
@@ -1024,6 +1138,7 @@ export function collectReferencedDevices(program: LadderProgram): {
 
   return {
     relays: Array.from(relays).sort(sortNum),
+    steps: Array.from(steps).sort(sortNum),
     timers: Array.from(timers).sort(sortNum),
     counters: Array.from(counters).sort(sortNum),
     registers: Array.from(registers).sort(sortNum),
