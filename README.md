@@ -27,7 +27,8 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 
 - **Devre çizme:** Kontak, bobin, zamanlayıcı (`TMR`), sayıcı (`CNT`), karşılaştırma ve hesap komutlarını yerleştirin.
 - **Deneme (simülasyon):** Girişlere (`X0`, `X1`…) dokunun, çıkışların (`Y0`, `Y1`…) yanıp söndüğünü canlı izleyin.
-- **Komut listesi:** Çizdiğiniz devrenin WPLSoft komut listesini (IL) görün, kopyalayıp gerçek WPLSoft'a yapıştırın.
+- **Komut listesi:** Çizdiğiniz devrenin WPLSoft komut listesini (IL) görün ve bilgisayardaki WPLSoft'un komut (Instruction) ekranına aktarın
+  (adımlar uygulamada **Dosya / IL → Dışa Aktar** penceresinde anlatılır).
   WPLSoft'tan kopyaladığınız komutları da bu programa aktarabilirsiniz.
 - **Açıklamalar (etiketler):** Kontak ve bobinlere "Start", "Motor" gibi açıklamalar yazın. Açıklamalı komut listesini indirebilir,
   açıklama listesini kopyalayıp WPLSoft'taki aygıt açıklamalarına girebilirsiniz.
