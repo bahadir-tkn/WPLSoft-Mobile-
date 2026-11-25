@@ -108,12 +108,12 @@ export const SearchCrossRefModal: React.FC<SearchCrossRefModalProps> = ({
       aria-modal="true"
       aria-labelledby="search-crossref-title"
       data-testid="search-crossref-modal"
-      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] rounded-t-xl sm:rounded shadow-xl flex flex-col max-h-[88dvh] overflow-hidden">
+      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] rounded-t-xl sm:rounded shadow-xl flex flex-col max-h-[88dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] overflow-hidden">
         {/* Header */}
         <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2 min-w-0">

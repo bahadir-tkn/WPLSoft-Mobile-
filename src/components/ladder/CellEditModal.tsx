@@ -1149,14 +1149,14 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       role="dialog"
       aria-modal="true"
       aria-labelledby="cell-edit-modal-title"
-      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
       <form
         onSubmit={handleSubmit}
-        className="bg-white border border-[#BFC7D5] rounded-t-xl sm:rounded-md shadow-xl w-full max-w-xl max-h-[92dvh] flex flex-col overflow-hidden"
+        className="bg-white border border-[#BFC7D5] rounded-t-xl sm:rounded-md shadow-xl w-full max-w-xl max-h-[92dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] flex flex-col overflow-hidden"
       >
         {/* Header */}
         <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-2 shrink-0">

@@ -119,7 +119,7 @@ export const OnlineControlModal: React.FC<OnlineControlModalProps> = ({
         aria-modal="true"
         aria-labelledby="online-bit-ctrl-title"
         data-testid="online-control-modal"
-        className="fixed inset-0 z-50 bg-[#0F172A]/40 flex items-center justify-center p-4"
+        className="fixed inset-0 z-50 bg-[#0F172A]/40 flex items-center justify-center p-4 [@media(max-height:500px)]:p-1!"
         onClick={(e) => {
           if (e.target === e.currentTarget) onClose();
         }}
@@ -266,7 +266,7 @@ export const OnlineControlModal: React.FC<OnlineControlModalProps> = ({
       aria-modal="true"
       aria-labelledby="online-val-ctrl-title"
       data-testid="online-value-modal"
-      className="fixed inset-0 z-50 bg-[#0F172A]/40 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/40 flex items-center justify-center p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
