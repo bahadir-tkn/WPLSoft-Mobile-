@@ -81,7 +81,8 @@ async function assertNoHeaderOverlap(page: Page) {
     });
   });
 
-  expect(boxes.length).toBeGreaterThan(3);
+  // Simülasyon modunda başlıkta daha az düğme bulunur; en az iki görünür kontrol yeterlidir.
+  expect(boxes.length).toBeGreaterThanOrEqual(2);
   for (let i = 0; i < boxes.length; i += 1) {
     for (let j = i + 1; j < boxes.length; j += 1) {
       const a = boxes[i];
@@ -98,6 +99,11 @@ async function assertNoHeaderOverlap(page: Page) {
 
 async function submitQuickCommand(page: Page, cmd: string) {
   const input = page.getByTestId('quick-command-input');
+  // Mobil görünümde komut satırı ">_" düğmesiyle açılır.
+  if (!(await input.isVisible())) {
+    const toggle = page.getByTestId('toggle-quick-cmd-btn');
+    if (await toggle.isVisible()) await toggle.click();
+  }
   await input.fill(cmd);
   await page.getByTestId('quick-command-submit').click();
 }
@@ -282,12 +288,12 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await page.keyboard.press('Escape');
     await expect(page.getByTestId('mobile-command-drawer')).toBeHidden();
 
-    // 3. Ladder zoom buttons (75%, 100%, 125%) work without page overflow
-    await page.getByTestId('zoom-compact-btn').click();
-    await assertNoHorizontalOverflow(page);
-    await page.getByTestId('zoom-large-btn').click();
-    await assertNoHorizontalOverflow(page);
-    await page.getByTestId('zoom-normal-btn').click();
+    // 3. Mobile zoom cycle button (75% → 100% → 125%) works without page overflow
+    const zoomBtn = page.getByTestId('compact-zoom-btn');
+    for (let i = 0; i < 3; i += 1) {
+      await zoomBtn.click();
+      await assertNoHorizontalOverflow(page);
+    }
 
     // 4. Grid scroll container scrolls horizontally inside viewport while documentElement does not
     const scrollInfo = await page.evaluate(() => {
@@ -316,9 +322,9 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await expect(page.getByTestId('cell-0-0-0')).toContainText('X0');
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');
 
-    await page.getByTestId('mobile-undo-btn').click();
+    await page.getByTestId('undo-btn').click();
     await expect(page.getByTestId('cell-0-0-8')).not.toContainText('Y0');
-    await page.getByTestId('mobile-redo-btn').click();
+    await page.getByTestId('redo-btn').click();
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');
 
     await assertNoHorizontalOverflow(page);
@@ -334,7 +340,9 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await submitQuickCommand(page, 'LD X0');
     await submitQuickCommand(page, 'OUT Y0');
 
-    await page.getByTestId('open-project-io-btn').click();
+    // Mobilde Dosya / IL penceresi "⋯" menüsünden açılır.
+    await page.getByTestId('header-more-btn').click();
+    await page.getByTestId('header-more-menu').getByText('Dosya / IL Aktar').click();
     await page.getByTestId('io-tab-projects').click();
     await page.getByTestId('library-project-name-input').fill('Mobil_Test_Kayit');
     await page.getByTestId('save-project-library-btn').click();
@@ -361,7 +369,7 @@ test.describe('Mobile (390x844) — WPLSoft Mobile Touch & Layout Verification',
     await assertNoHeaderOverlap(page);
 
     // Exit simulation and reload -> verify zero data loss
-    await page.getByTestId('sim-exit-btn').click();
+    await page.getByTestId('toggle-online-btn').click();
     await page.reload();
     await expect(page.getByTestId('cell-0-0-0')).toContainText('X0');
     await expect(page.getByTestId('cell-0-0-8')).toContainText('Y0');

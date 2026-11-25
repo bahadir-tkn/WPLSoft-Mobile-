@@ -1083,7 +1083,7 @@ export function saveCustomSnippet(
   const snippet: CustomCircuitSnippet = {
     id: `snip-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title: trimmedTitle,
-    description: description.trim() || 'Kullanıcı tarafından kaydedilen özel Ladder devresi.',
+    description: description.trim(),
     model: program.model,
     createdAt: new Date().toISOString(),
     program: {

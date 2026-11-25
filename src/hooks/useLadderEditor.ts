@@ -363,7 +363,7 @@ export function useLadderEditor(
   );
 
   const handleSaveModal = useCallback(
-    (updatedElement: CellElement, comment: string) => {
+    (updatedElement: CellElement, comment: string | undefined) => {
       if (!editModal) return;
       const base = editModal.previousProgram ?? program;
       const timestamp = new Date().toISOString();
@@ -507,12 +507,18 @@ export function useLadderEditor(
   const toggleBranchDownAt = useCallback(
     (pos: CursorPosition) => {
       if (isLocked) return;
-      if (pos.colIndex >= LADDER_COIL_COLUMN) {
-        onNotify('Paralel kol (F10) lojik sütunlarının (0–7) sağ kenarına eklenir.');
+      // Gerçek WPLSoft'taki gibi: dikey paralel kol, seçili hücrenin SOL kenarından aşağı iner.
+      // Veri modelinde dikey çizgi bir hücrenin sağ kenarında tutulduğu için
+      // seçili sütunun solundaki (colIndex - 1) hücreye yazılır.
+      if (pos.colIndex <= 0) {
+        onNotify(
+          'İlk sütunun solu sol güç hattıdır; satırlar oraya zaten bağlıdır. Paralel kol için 1. sütun veya sağını seçin.'
+        );
         return;
       }
+      const anchorCol = Math.min(pos.colIndex, LADDER_COIL_COLUMN) - 1;
       const targetRung = program.rungs[pos.rungIndex];
-      const currentCell = targetRung?.rows[pos.rowIndex]?.[pos.colIndex];
+      const currentCell = targetRung?.rows[pos.rowIndex]?.[anchorCol];
       if (!targetRung || targetRung.isEnd || !currentCell) return;
 
       const willAddBranch = !currentCell.branchDown;
@@ -520,7 +526,7 @@ export function useLadderEditor(
         const rungs = cloneRungs(current.rungs);
         const rung = rungs[pos.rungIndex];
         if (!rung || rung.isEnd) return current;
-        const cell = rung.rows[pos.rowIndex]?.[pos.colIndex];
+        const cell = rung.rows[pos.rowIndex]?.[anchorCol];
         if (!cell) return current;
 
         const nextBranch = !cell.branchDown;
@@ -536,7 +542,7 @@ export function useLadderEditor(
 
       if (willAddBranch) {
         onNotify(
-          `Ağ ${String(pos.rungIndex).padStart(3, '0')} Sütun ${pos.colIndex} için paralel kol (OR Branch) eklendi.`
+          `Ağ ${String(pos.rungIndex).padStart(3, '0')} Sütun ${pos.colIndex} hücresinin solundan paralel kol eklendi.`
         );
       } else {
         onNotify('Paralel kol bağlantısı kaldırıldı.');

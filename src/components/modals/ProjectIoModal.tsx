@@ -264,7 +264,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       ilDraft,
       program.model,
       program.projectName,
-      program.deviceComments
+      {}
     );
     setIlErrors(result.errors);
     setIlWarnings(result.warnings);

@@ -30,7 +30,7 @@ export default defineConfig(() => {
           name: 'WPLSoft Web — Delta DVP PLC',
           short_name: 'WPLSoft',
           description:
-            'Delta DVP Serisi PLC Ladder diyagram editörü, PC WPLSoft uyumlu IL dönüştürücüsü ve gerçek zamanlı 20ms tarama simülatörü.',
+            "Delta DVP PLC'ler için telefonda ve bilgisayarda çalışan Ladder diyagram çizme ve deneme (simülasyon) programı.",
           theme_color: '#0B4EA2',
           background_color: '#ECEEF2',
           display: 'standalone',

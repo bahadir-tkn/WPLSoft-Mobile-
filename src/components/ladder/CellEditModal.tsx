@@ -13,13 +13,15 @@ import type {
 } from '../../types/plc';
 import { PLC_MODELS } from '../../core/plcModels';
 import { validateAddress, validateZrstRange } from '../../core/addressing';
+import { extractPrimaryAddress } from '../../core/ladderOperations';
 
 interface CellEditModalProps {
   element: CellElement;
   isNewPlacement: boolean;
   model: PlcModelId;
   deviceComments: Record<string, string>;
-  onSave: (element: CellElement, comment: string) => void;
+  /** comment === undefined → kullanıcı açıklamaya dokunmadı, mevcut etiketler değiştirilmez. */
+  onSave: (element: CellElement, comment: string | undefined) => void;
   onDelete: () => void;
   onCancel: () => void;
 }
@@ -459,8 +461,10 @@ function getInitialFields(
     commentKey = element.operandA;
   }
 
+  // Açıklama alanı asla otomatik doldurulmaz: yeni yerleştirilen elemanda boş başlar,
+  // mevcut bir elemanı düzenlerken yalnızca o elemana daha önce yazılmış açıklama gösterilir.
   const initialComment = isNewPlacement
-    ? deviceComments[commentKey] ?? ''
+    ? ''
     : deviceComments[commentKey] ?? ('comment' in element ? element.comment ?? '' : '');
 
   return {
@@ -473,6 +477,7 @@ function getInitialFields(
     tertiaryInput,
     quaternaryInput,
     initialComment,
+    commentKey,
   };
 }
 
@@ -493,7 +498,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   isNewPlacement,
   model,
   deviceComments,
-  onSave,
+  onSave: onSaveProp,
   onDelete,
   onCancel,
 }) => {
@@ -551,12 +556,8 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   const isContact = element.kind === 'CONTACT';
   const isCoil = element.kind === 'COIL';
 
-  const syncCommentForAddress = (addr: string) => {
-    if (!commentTouched) {
-      const normalized = addr.trim().toUpperCase();
-      setComment(deviceComments[normalized] ?? '');
-    }
-  };
+  // Adres değiştiğinde açıklama otomatik olarak getirilmez/yazılmaz.
+  const syncCommentForAddress = (_addr: string) => {};
 
   const usesSecondaryAsCommentTarget =
     isAppCmd &&
@@ -788,65 +789,65 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     if (nextKind === 'TMR') {
       setPrimaryInput('T0');
       setSecondaryInput('K50');
-      setComment(deviceComments['T0'] ?? '');
+      setComment('');
     } else if (nextKind === 'CNT') {
       setPrimaryInput('C0');
       setSecondaryInput('K5');
-      setComment(deviceComments['C0'] ?? '');
+      setComment('');
     } else if (nextKind === 'MOV') {
       setPrimaryInput('K100');
       setSecondaryInput('D0');
-      setComment(deviceComments['D0'] ?? '');
+      setComment('');
     } else if (nextKind === 'SQR') {
       setPrimaryInput('D0');
       setSecondaryInput('D2');
-      setComment(deviceComments['D2'] ?? '');
+      setComment('');
     } else if (nextKind === 'DMOVR') {
       setPrimaryInput('F10.000');
       setSecondaryInput('D10');
-      setComment(deviceComments['D10'] ?? '');
+      setComment('');
     } else if (nextKind === 'DESQR') {
       setPrimaryInput('D30');
       setSecondaryInput('D40');
-      setComment(deviceComments['D40'] ?? '');
+      setComment('');
     } else if (nextKind === 'FLT') {
       setPrimaryInput('D0');
       setSecondaryInput('D10');
-      setComment(deviceComments['D10'] ?? '');
+      setComment('');
     } else if (isFloatMathAppCmd(nextKind)) {
       setPrimaryInput('D10');
       setSecondaryInput('D20');
       setTertiaryInput('D30');
-      setComment(deviceComments['D30'] ?? '');
+      setComment('');
     } else if (nextKind === 'ALT') {
       setPrimaryInput('Y0');
-      setComment(deviceComments['Y0'] ?? '');
+      setComment('');
     } else if (nextKind === 'ZRST') {
       setPrimaryInput('Y0');
       setSecondaryInput('Y5');
-      setComment(deviceComments['Y0'] ?? '');
+      setComment('');
     } else if (nextKind === 'CMP') {
       setPrimaryInput(model === 'DVP-SX2' ? 'D1110' : 'D0');
       setSecondaryInput('K500');
       setTertiaryInput('M0');
-      setComment(deviceComments['M0'] ?? '');
+      setComment('');
     } else if (isMathAppCmd(nextKind)) {
       setPrimaryInput('D0');
       setSecondaryInput(nextKind === 'DIV' ? 'K5' : 'D2');
       setTertiaryInput('D10');
-      setComment(deviceComments['D10'] ?? '');
+      setComment('');
     } else if (isIncDecAppCmd(nextKind)) {
       setPrimaryInput('D0');
-      setComment(deviceComments['D0'] ?? '');
+      setComment('');
     } else if (nextKind === 'TRD' || nextKind === 'TWR' || nextKind === 'TWRP') {
       setPrimaryInput('D20');
-      setComment(deviceComments['D20'] ?? '');
+      setComment('');
     } else if (nextKind === 'TZCP') {
       setPrimaryInput('D10');
       setSecondaryInput('D20');
       setTertiaryInput('D0');
       setQuaternaryInput('M0');
-      setComment(deviceComments['M0'] ?? '');
+      setComment('');
     }
   };
 
@@ -868,6 +869,19 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
         ? quaternaryValidation.parsed.normalized
         : quaternaryInput.trim().toUpperCase();
     const cleanComment = comment.trim() || undefined;
+    const originalElementComment = 'comment' in element ? element.comment : undefined;
+
+    // Kullanıcı açıklama alanına dokunmadıysa hiçbir açıklama otomatik yazılmaz/taşınmaz.
+    const onSave = (next: CellElement, rawComment: string) => {
+      if (commentTouched) {
+        onSaveProp(next, rawComment);
+        return;
+      }
+      const sameAddress =
+        !isNewPlacement && extractPrimaryAddress(next) === initial.commentKey.toUpperCase();
+      const keptComment = sameAddress ? originalElementComment : undefined;
+      onSaveProp({ ...next, comment: keptComment } as CellElement, undefined);
+    };
 
     if (isContact) {
       onSave(

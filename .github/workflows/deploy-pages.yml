@@ -29,11 +29,15 @@ jobs:
       - name: Bağımlılıkları yükle
         run: npm install --legacy-peer-deps
 
+      - name: Testleri çalıştır
+        run: npm test
+
+      # ÖNEMLİ: Bu adımın çalışması için depoda BİR KEZ şu ayar yapılmalıdır:
+      # Settings → Pages → Build and deployment → Source: "GitHub Actions"
+      # (Otomatik etkinleştirme, iş akışının izni yetmediği için hata veriyordu.)
       - name: GitHub Pages yapılandır
         id: pages
         uses: actions/configure-pages@v5
-        with:
-          enablement: true
 
       - name: Web uygulamasını derle
         shell: bash

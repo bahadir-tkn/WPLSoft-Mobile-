@@ -247,7 +247,9 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
                               {compiled.stepCount} Step
                             </span>
                           </div>
-                          <p className="text-xs text-[#475569] mt-0.5">{snip.description}</p>
+                          {snip.description && (
+                            <p className="text-xs text-[#475569] mt-0.5">{snip.description}</p>
+                          )}
                         </div>
                         <button
                           type="button"

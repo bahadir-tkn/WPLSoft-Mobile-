@@ -688,6 +688,7 @@ export default function App() {
         scanTimeMs={simulator.simState.scanTimeMs}
         storageError={editor.storageError}
         hidden={viewport.isPhoneLandscape}
+        showCursorInfo={viewport.isCompactTouch}
       />
 
       <Suspense fallback={null}>
