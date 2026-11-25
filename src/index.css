@@ -54,6 +54,14 @@
   }
 }
 
+/* iOS 15.3 ve öncesi dvh birimini tanımaz: tam ekran yüksekliği için yedek */
+@supports not (height: 100dvh) {
+  .wpl-safe-shell {
+    height: 100vh;
+    height: -webkit-fill-available;
+  }
+}
+
 /* Safe-area padding helpers for iPhone Dynamic Island / Notch (portrait & landscape) & Android gesture bars */
 .wpl-safe-shell {
   padding-top: env(safe-area-inset-top, 0px);

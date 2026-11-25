@@ -24,12 +24,12 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
       role="dialog"
       aria-modal="true"
       aria-labelledby="shortcuts-modal-title"
-      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-center justify-center p-3 sm:p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-center justify-center p-3 sm:p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88dvh] flex flex-col overflow-hidden">
+      <div className="bg-white border border-[#BFC7D5] rounded-md shadow-xl w-full max-w-2xl max-h-[88dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] flex flex-col overflow-hidden">
         <div className="px-4 py-3 bg-[#F4F6F9] border-b border-[#CBD2DC] flex items-center justify-between gap-3 shrink-0">
           <h2 id="shortcuts-modal-title" className="text-sm font-bold text-[#0F172A]">
             WPLSoft Klavye Kısayolları ve Desteklenen Delta Komutları

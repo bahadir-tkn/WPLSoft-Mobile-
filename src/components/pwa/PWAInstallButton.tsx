@@ -61,7 +61,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({
             role="dialog"
             aria-modal="true"
             aria-labelledby="ios-pwa-guide-title"
-            className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4"
+            className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4 [@media(max-height:500px)]:p-1!"
             onClick={(e) => {
               if (e.target === e.currentTarget) setShowIOSGuide(false);
             }}

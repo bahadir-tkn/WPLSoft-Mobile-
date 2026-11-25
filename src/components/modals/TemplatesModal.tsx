@@ -111,14 +111,14 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       aria-modal="true"
       aria-labelledby="templates-modal-title"
       data-testid="templates-modal"
-      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] overflow-hidden">
+      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] overflow-hidden">
         {/* Header */}
-        <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2 shrink-0">
+        <div className="bg-[#0B4EA2] text-white px-4 py-3 [@media(max-height:500px)]:py-2 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <BookOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
             <h2 id="templates-modal-title" className="text-sm font-semibold truncate">
@@ -145,7 +145,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
             [
               { id: 'all', label: `Tümü (${counts.all})` },
               { id: 'experiment', label: `Deneyler (${counts.experiment})` },
-              { id: 'textbook', label: `Ders Kitabı / Laboratuvar (${counts.textbook})` },
+              { id: 'textbook', label: `Ders Kitabı (${counts.textbook})` },
               { id: 'classic', label: `Temel Kumanda (${counts.classic})` },
               { id: 'custom', label: `Özel Devrelerim (${counts.custom})` },
             ] as const
@@ -287,7 +287,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
             </div>
           ) : (
             <>
-              <p className="text-xs text-[#475569]">
+              <p className="text-xs text-[#475569] [@media(max-height:500px)]:hidden">
                 Hazır bir devre seçin: diyagrama yükleyip düzenleyebilir ya da doğrudan simülasyonda deneyebilirsiniz.
               </p>
 
@@ -383,7 +383,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="px-4 py-2.5 bg-white border-t border-[#CBD2DC] flex items-center justify-between gap-2">
+        <div className="px-4 py-2.5 bg-white border-t border-[#CBD2DC] flex items-center justify-between gap-2 [@media(max-height:500px)]:hidden">
           <span className="text-[11px] text-[#64748B]">
             {INDUSTRIAL_TEMPLATES.length} hazır şablon · {customSnippets.length} özel devre
           </span>

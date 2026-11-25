@@ -52,7 +52,31 @@ interface ProjectIoModalProps {
   onClose: () => void;
 }
 
+/** iPhone / iPad (iPadOS masaüstü kimliğiyle gelse de) */
+function isAppleMobile(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return (
+    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  );
+}
+
 function triggerFileDownload(filename: string, content: string, mimeType: string): void {
+  // iOS'ta (özellikle ana ekrana eklenmiş uygulamada) blob indirme bağlantısı uygulamayı
+  // terk ettirebilir. Paylaşım sayfası ise "Dosyalar'a Kaydet" seçeneğini güvenle sunar.
+  if (isAppleMobile() && typeof File !== 'undefined' && typeof navigator.canShare === 'function') {
+    const file = new File([content], filename, { type: mimeType.split(';')[0] });
+    if (navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], title: filename }).catch((err: unknown) => {
+        if ((err as { name?: string })?.name !== 'AbortError') downloadViaAnchor(filename, content, mimeType);
+      });
+      return;
+    }
+  }
+  downloadViaAnchor(filename, content, mimeType);
+}
+
+function downloadViaAnchor(filename: string, content: string, mimeType: string): void {
   const blob = new Blob([content], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
@@ -365,12 +389,12 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       aria-modal="true"
       aria-labelledby="project-io-modal-title"
       data-testid="project-io-modal"
-      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-50 bg-[#0F172A]/45 flex items-end sm:items-center justify-center p-0 sm:p-4 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] overflow-hidden">
+      <div className="w-full sm:max-w-2xl bg-white border border-[#BFC7D5] sm:rounded shadow-xl flex flex-col max-h-[90dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] overflow-hidden">
         {/* Header */}
         <div className="bg-[#0B4EA2] text-white px-4 py-3 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">

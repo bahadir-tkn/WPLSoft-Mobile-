@@ -329,12 +329,12 @@ export const WiringDiagramModal: React.FC<WiringDiagramModalProps> = ({
       aria-modal="true"
       aria-labelledby="wiring-modal-title"
       data-testid="wiring-diagram-modal"
-      className="fixed inset-0 z-50 bg-[#0F172A]/55 flex items-end sm:items-center justify-center p-0 sm:p-3 lg:p-5"
+      className="fixed inset-0 z-50 bg-[#0F172A]/55 flex items-end sm:items-center justify-center p-0 sm:p-3 lg:p-5 [@media(max-height:500px)]:p-1!"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-[1320px] bg-white border border-[#BFC7D5] sm:rounded shadow-2xl flex flex-col max-h-[94dvh] overflow-hidden">
+      <div className="w-full max-w-[1320px] bg-white border border-[#BFC7D5] sm:rounded shadow-2xl flex flex-col max-h-[94dvh] [@media(max-height:500px)]:max-h-[calc(100dvh-0.5rem)] overflow-hidden">
         {/* Top Modal Header */}
         <div className="bg-[#0B4EA2] text-white px-4 py-2.5 flex items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2 min-w-0">
