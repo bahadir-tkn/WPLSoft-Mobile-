@@ -80,23 +80,4 @@ Telefonda bu tuşların yerine üstteki **Komutlar** menüsünü kullanabilirsin
 
 ---
 
-<details>
-<summary><b>Geliştiriciler için (isteğe bağlı)</b></summary>
 
-Bilgisayarınızda çalıştırmak için [Node.js](https://nodejs.org) (22 veya üstü) kurulu olmalıdır.
-
-```bash
-npm install --legacy-peer-deps   # gerekli paketleri indir
-npm run dev                      # http://localhost:3000 adresinde açılır
-npm test                         # testleri çalıştır
-npm run build                    # yayın dosyalarını dist/ klasörüne üretir
-```
-
-**Web sitesinin yayınlanması:** `main` dalına her gönderimde site otomatik olarak GitHub Pages'e yüklenir.
-Bunun çalışması için depoda **bir kez** şu ayarın yapılmış olması gerekir:
-**Settings → Pages → Build and deployment → Source: "GitHub Actions"**.
-
-**Windows sürümü:** `main` dalına her gönderimde `.exe` dosyaları otomatik üretilip
-[Releases](https://github.com/bahadir-tkn/WPLSoft-Mobile-/releases) sayfasına eklenir.
-
-</details>
