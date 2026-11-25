@@ -59,6 +59,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
       all: INDUSTRIAL_TEMPLATES.length,
       classic: INDUSTRIAL_TEMPLATES.filter((t) => t.category === 'classic').length,
       textbook: INDUSTRIAL_TEMPLATES.filter((t) => t.category === 'textbook').length,
+      experiment: INDUSTRIAL_TEMPLATES.filter((t) => t.category === 'experiment').length,
       custom: customSnippets.length,
     }),
     [customSnippets.length]
@@ -143,6 +144,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
           {(
             [
               { id: 'all', label: `Tümü (${counts.all})` },
+              { id: 'experiment', label: `Deneyler (${counts.experiment})` },
               { id: 'textbook', label: `Ders Kitabı / Laboratuvar (${counts.textbook})` },
               { id: 'classic', label: `Temel Kumanda (${counts.classic})` },
               { id: 'custom', label: `Özel Devrelerim (${counts.custom})` },

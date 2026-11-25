@@ -1,5 +1,6 @@
 import type { LadderProgram, LadderRung, PlcModelId } from '../types/plc';
 import { createEmptyRow, createEndRung } from './gridFactory';
+import { parseIlToLadder } from './ilParser';
 import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS } from './plcModels';
 
 export type TemplateId =
@@ -9,9 +10,11 @@ export type TemplateId =
   | 'traffic-light'
   | 'dynamic-counter'
   | 'adjustable-timer'
-  | 'sx2-analog-temp';
+  | 'sx2-analog-temp'
+  | 'deney5-dalgic-pompa'
+  | 'deney6-su-kopuk';
 
-export type TemplateCategory = 'classic' | 'textbook';
+export type TemplateCategory = 'classic' | 'textbook' | 'experiment';
 
 export interface IndustrialTemplateMeta {
   id: TemplateId;
@@ -594,6 +597,125 @@ function buildSx2AnalogTempProgram(): LadderProgram {
   };
 }
 
+/** Laboratuvar föyündeki IL'den şablon programı kurar (föyün Ladder diyagramıyla birebir). */
+function buildFromIl(
+  il: string,
+  model: PlcModelId,
+  projectName: string,
+  deviceComments: Record<string, string>
+): LadderProgram {
+  const parsed = parseIlToLadder(il, model, projectName, deviceComments);
+  if (!parsed.success || !parsed.program) {
+    throw new Error(`Şablon IL kodu okunamadı: ${JSON.stringify(parsed.errors)}`);
+  }
+  return { ...parsed.program, projectName, updatedAt: new Date().toISOString() };
+}
+
+// Deney 5 — PLC ile Dalgıç Pompa Uygulaması (Şekil 3)
+const DENEY5_IL = [
+  'LDI X0',
+  'SET Y1',
+  'SET Y2',
+  'LD X1',
+  'ANI X2',
+  'OUT M1',
+  'LD M1',
+  'MPS',
+  'TMR T0 K100',
+  'MRD',
+  'ANI T0',
+  'SET Y1',
+  'RST Y2',
+  'MPP',
+  'AND T0',
+  'TMR T1 K100',
+  'RST Y1',
+  'SET Y2',
+  'AND T1',
+  'RST Y2',
+  'RST T0',
+  'LD X2',
+  'RST Y1',
+  'RST Y2',
+  'LD X0',
+  'ANI X3',
+  'SET Y3',
+  'LD X4',
+  'RST Y3',
+  'END',
+].join('\n');
+
+function buildDeney5Program(model: PlcModelId): LadderProgram {
+  return buildFromIl(DENEY5_IL, model, 'Deney5_Dalgic_Pompa', {
+    X0: 'Ana Depo Alt %25',
+    X1: 'Ana Depo Orta %50',
+    X2: 'Ana Depo Üst %100',
+    X3: 'Tali Depo Alt %25',
+    X4: 'Tali Depo Üst %100',
+    Y1: 'P1 Dalgıç Pompa',
+    Y2: 'P2 Dalgıç Pompa',
+    Y3: 'Yatay Milli Pompa',
+    M1: 'Dönüşümlü Çalışma',
+    T0: 'P1 Süresi',
+    T1: 'P2 Süresi',
+  });
+}
+
+// Deney 6 — Benzin İstasyonu Su / Köpük Otomasyonu
+const DENEY6_IL = [
+  'LD X0',
+  'ANI C0',
+  'SET M0',
+  'CNT C0 K50',
+  'LD M0',
+  'AND X1',
+  'ANI M2',
+  'SET M1',
+  'LD M0',
+  'AND X2',
+  'ANI M1',
+  'SET M2',
+  'LD M1',
+  'MPS',
+  'TMR T1 K150',
+  'MRD',
+  'ANI T1',
+  'SET Y1',
+  'MPP',
+  'AND T1',
+  'RST Y1',
+  'RST M1',
+  'RST M0',
+  'LD M2',
+  'MPS',
+  'TMR T2 K250',
+  'MRD',
+  'ANI T2',
+  'SET Y2',
+  'MPP',
+  'AND T2',
+  'RST Y2',
+  'RST M2',
+  'RST M0',
+  'END',
+].join('\n');
+
+function buildDeney6Program(model: PlcModelId): LadderProgram {
+  return buildFromIl(DENEY6_IL, model, 'Deney6_Su_Kopuk', {
+    X0: '1 TL',
+    X1: 'Köpük Buton',
+    X2: 'Su Buton',
+    Y1: 'Köpük Pompa',
+    Y2: 'Su Pompa',
+    T1: 'Köpük Süresi',
+    T2: 'Su Süresi',
+    C0: '50 Adet Sayıcı',
+    M0: '1 TL Kilit',
+    M1: 'Köpük Kilit',
+    M2: 'Su Kilit',
+  });
+}
+
 export const INDUSTRIAL_TEMPLATES: IndustrialTemplateMeta[] = [
   {
     id: 'start-stop',
@@ -709,6 +831,40 @@ export const INDUSTRIAL_TEMPLATES: IndustrialTemplateMeta[] = [
       { address: 'Y0 / Y1', role: 'Isıtıcı / İzleme Lambası' },
     ],
     buildProgram: buildSx2AnalogTempProgram,
+  },
+  {
+    id: 'deney5-dalgic-pompa',
+    category: 'experiment',
+    referenceTag: 'Deney 5',
+    title: 'Deney 5: PLC ile Dalgıç Pompa Uygulaması',
+    subtitle: 'SET, RST ve TMR ile iki dalgıç pompa ve yatay milli pompa kontrolü',
+    difficulty: 'Orta',
+    description:
+      'Ana depo %25 seviyesinin altındayken P1 (Y1) ve P2 (Y2) birlikte çalışır. Seviye %50 ile %100 arasındayken pompalar T0/T1 ile sırayla (10’ar sn) çalışır, %100 olunca ikisi de durur. Ana depo %25 üstündeyken tali depo boşalırsa yatay milli pompa (Y3) çalışır, tali depo dolunca durur. Föydeki Şekil 3 diyagramıyla aynıdır.',
+    ioSummary: [
+      { address: 'X0 / X1 / X2', role: 'Ana depo %25 / %50 / %100' },
+      { address: 'X3 / X4', role: 'Tali depo %25 / %100' },
+      { address: 'Y1 / Y2', role: 'P1 / P2 dalgıç pompa' },
+      { address: 'Y3', role: 'Yatay milli pompa' },
+    ],
+    buildProgram: buildDeney5Program,
+  },
+  {
+    id: 'deney6-su-kopuk',
+    category: 'experiment',
+    referenceTag: 'Deney 6',
+    title: 'Deney 6: Benzin İstasyonu Su–Köpük Otomasyonu',
+    subtitle: 'Jetonlu (1 TL) köpük ve su pompası, süre ve sayıcı ile',
+    difficulty: 'Orta',
+    description:
+      '1 TL atılınca (X0) M0 kilitlenir ve C0 sayıcısı bir artar (50 adet olunca para kabul edilmez). Köpük butonu (X1) köpük pompasını (Y1) 15 sn, su butonu (X2) su pompasını (Y2) 25 sn çalıştırır; ikisi aynı anda seçilemez. Süre bitince pompa durur ve yeniden para atılması gerekir.',
+    ioSummary: [
+      { address: 'X0', role: '1 TL girişi' },
+      { address: 'X1 / X2', role: 'Köpük / Su butonu' },
+      { address: 'Y1 / Y2', role: 'Köpük / Su pompası' },
+      { address: 'T1 / T2 / C0', role: '15 sn / 25 sn / 50 adet' },
+    ],
+    buildProgram: buildDeney6Program,
   },
 ];
 

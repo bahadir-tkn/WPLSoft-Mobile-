@@ -859,10 +859,18 @@ export function parseIlToLadder(
         const left = stack.pop()!;
         stack.push(makeSeries(left, right));
       }
+      const mpsPrefix = stack.pop()!;
+      // MPS'ten önce aynı koşula yazılmış çıkışlar (ör. LD M1 / TMR T0 K100 / MPS ...)
+      // kaybolmasın: bunlar ortak koşulun ilk dalları olur.
+      const hadOutputsBeforeMps = pendingOutputs.length > 0;
+      for (const out of pendingOutputs) {
+        leafBranches.push({ factors: flattenSeriesNodes(mpsPrefix), output: out });
+      }
+      pendingOutputs = [];
       mpsStack.push({
-        prefix: stack.pop()!,
+        prefix: mpsPrefix,
         branchStack: [],
-        branchHasOutput: false,
+        branchHasOutput: hadOutputsBeforeMps,
         sawMpp: false,
       });
       inOutputPhase = false;

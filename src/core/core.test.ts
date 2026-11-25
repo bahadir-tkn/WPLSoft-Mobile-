@@ -473,8 +473,8 @@ test('Simulator: LDP rising-edge MOV K100 D0 and LD>= D0 K50 comparison energize
   assert.equal(state.outputs['Y3'], false);
 });
 
-test('Templates: All 7 industrial & textbook templates compile cleanly with zero errors/warnings and no line numbers', () => {
-  assert.equal(INDUSTRIAL_TEMPLATES.length, 7);
+test('Templates: All 9 industrial & textbook templates compile cleanly with zero errors/warnings and no line numbers', () => {
+  assert.equal(INDUSTRIAL_TEMPLATES.length, 9);
   for (const tpl of INDUSTRIAL_TEMPLATES) {
     const targetModel = tpl.requiredModel ?? 'DVP-14SS2';
     const program = tpl.buildProgram(targetModel);
@@ -2850,4 +2850,44 @@ test('Book: S step relays are valid addresses; STL must be on its own rung', () 
   program.rungs[0].rows[0][1] = { branchDown: false, element: { kind: 'HLINE' } };
   const compiled = compileLadderToIl(program);
   assert.ok(compiled.diagnostics.some((d) => d.severity === 'error' && /tek başına/.test(d.message)));
+});
+
+test('IL: outputs written before MPS are kept (LD M1 / TMR T0 K100 / MPS ...)', () => {
+  const il = 'LD M1\nTMR T0 K100\nMPS\nANI T0\nSET Y1\nMPP\nAND T0\nRST Y1\nEND';
+  const parsed = parseIlToLadder(il, 'DVP-SX2');
+  assert.equal(parsed.success, true, JSON.stringify(parsed.errors));
+  const text = compileLadderToIl(parsed.program!).rawIlText;
+  assert.match(text, /TMR T0 K100/);
+  assert.match(text, /SET Y1/);
+  assert.match(text, /RST Y1/);
+});
+
+test('Experiments: Deney 5 pumps alternate above %50 and stop at %100; Deney 6 runs foam 15 s per coin', () => {
+  const d5 = getTemplateById('deney5-dalgic-pompa').buildProgram('DVP-SX2');
+  const s5 = runScans(d5, [
+    [{}, 3],
+    [{ X0: true, X1: true }, 3],
+    [{}, 510],
+    [{}, 510],
+    [{ X2: true }, 3],
+  ]);
+  assert.deepEqual([s5[0].outputs.Y1, s5[0].outputs.Y2], [true, true]);
+  assert.deepEqual([s5[1].outputs.Y1, s5[1].outputs.Y2], [true, false]);
+  assert.deepEqual([s5[2].outputs.Y1, s5[2].outputs.Y2], [false, true]);
+  assert.deepEqual([s5[3].outputs.Y1, s5[3].outputs.Y2], [true, false]);
+  assert.deepEqual([s5[4].outputs.Y1, s5[4].outputs.Y2], [false, false]);
+
+  const d6 = getTemplateById('deney6-su-kopuk').buildProgram('DVP-SX2');
+  const s6 = runScans(d6, [
+    [{ X0: true }, 2],
+    [{ X0: false, X1: true }, 2],
+    [{ X1: false }, 740],
+    [{}, 20],
+    [{ X2: true }, 3],
+  ]);
+  assert.equal(s6[1].outputs.Y1, true);
+  assert.equal(s6[2].outputs.Y1, true, 'still foaming before 15 s');
+  assert.equal(s6[3].outputs.Y1, false, 'foam stops after 15 s');
+  assert.equal(s6[3].relays.M0, false, 'coin consumed');
+  assert.equal(s6[4].outputs.Y2, false, 'water needs a new coin');
 });
