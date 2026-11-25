@@ -62,7 +62,11 @@ function buildStartStopProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-ss-0', rows: [r0a, r0b] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      X0: 'Start',
+      X1: 'Stop',
+      Y0: 'Motor',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -123,7 +127,14 @@ function buildStarDeltaProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-sd-3', rows: [r3] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      X0: 'Start',
+      X1: 'Stop',
+      Y0: 'Ana Kont.',
+      Y1: 'Yıldız',
+      Y2: 'Üçgen',
+      T0: 'Y/Ü Süre',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -165,7 +176,13 @@ function buildForwardReverseProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-fr-1', rows: [r1a, r1b] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      X0: 'İleri',
+      X1: 'Geri',
+      X2: 'Stop',
+      Y0: 'İleri M.',
+      Y1: 'Geri M.',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -276,7 +293,15 @@ function buildTrafficLightProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-tl-5', rows: [r5] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      X0: 'Başlat/Dur',
+      M0: 'Sistem Akt.',
+      T0: '80sn Periyot',
+      M1013: '1Hz Flaşör',
+      Y0: 'Kırmızı',
+      Y1: 'Sarı',
+      Y2: 'Yeşil',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -350,7 +375,16 @@ function buildDynamicCounterProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-dc-5', rows: [r5] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      M1002: 'İlk Tarama',
+      X0: '1. Sensör',
+      X1: '2. Sensör',
+      X2: 'Ürün Sens.',
+      X3: 'Reset/Stop',
+      D10: 'Sayma Hedef',
+      C0: 'Ürün Sayıcı',
+      Y0: 'Bant Motor',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -418,7 +452,15 @@ function buildAdjustableTimerProgram(model: PlcModelId): LadderProgram {
       { id: 'tpl-at-4', rows: [r4] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      M1002: 'İlk Tarama',
+      X1: 'Zaman Başlat',
+      X2: 'Süre Artır+',
+      X3: 'Süre Azalt-',
+      D1: 'Süre (x0.1s)',
+      T1: 'Ayarlı TMR',
+      Y1: 'Çıkış Motor',
+    },
     updatedAt: new Date().toISOString(),
   };
 }
@@ -531,7 +573,23 @@ function buildSx2AnalogTempProgram(): LadderProgram {
       { id: 'tpl-sx2t-7', rows: [r7a, r7b] },
       createEndRung(),
     ],
-    deviceComments: {},
+    deviceComments: {
+      M1002: 'İlk Tarama',
+      X0: 'Acil Durdur',
+      X1: 'Başlat',
+      X2: '30°C Kademe',
+      X3: '60°C Kademe',
+      X4: '90°C Kademe',
+      M0: 'Sistem Akt.',
+      D1115: 'AD Mod (0-10V)',
+      D1110: 'AD0 (LM35)',
+      D100: 'AD0 Kopya',
+      D101: 'Sıcaklık °C',
+      D102: 'DIV Kalan',
+      D200: 'Hedef °C',
+      Y0: 'Isıtıcı',
+      Y1: 'İzleme Lamba',
+    },
     updatedAt: new Date().toISOString(),
   };
 }

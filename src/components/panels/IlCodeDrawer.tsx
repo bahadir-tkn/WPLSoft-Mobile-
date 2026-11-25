@@ -12,8 +12,12 @@ import {
 import type { CompileResult, IlOpcode } from '../../types/plc';
 import { copyTextToClipboard } from '../../core/clipboard';
 
+import { commentForInstruction } from '../../core/commentExport';
+
 interface IlCodeDrawerProps {
   compileResult: CompileResult;
+  /** Aygıt açıklamaları: WPLSoft komut ekranındaki gibi satırın sağında gösterilir. */
+  deviceComments?: Record<string, string>;
   activeRungIndex: number;
   isOnline?: boolean;
   onSelectRung: (rungIndex: number) => void;
@@ -63,6 +67,7 @@ function opcodeColorClass(opcode: IlOpcode): string {
 
 export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
   compileResult,
+  deviceComments = {},
   activeRungIndex,
   isOnline = false,
   onSelectRung,
@@ -188,6 +193,14 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
                 <span className="text-[#0F172A] font-medium truncate">
                   {inst.operands.join(' ')}
                 </span>
+                {(() => {
+                  const c = commentForInstruction(inst.opcode, inst.operands, deviceComments);
+                  return c ? (
+                    <span className="ml-auto pl-2 font-sans text-[11px] text-[#64748B] truncate max-w-[45%]">
+                      {c}
+                    </span>
+                  ) : null;
+                })()}
               </button>
             );
           })

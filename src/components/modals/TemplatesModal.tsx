@@ -267,7 +267,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
                           onClick={() => onLoadTemplate(snip.program, false)}
                           className="h-8 px-3 rounded border border-[#0B4EA2] bg-[#EEF4FC] hover:bg-[#DCE9FA] text-xs font-semibold text-[#0B4EA2] cursor-pointer"
                         >
-                          Izgaraya Yükle
+                          Diyagrama Yükle
                         </button>
                         <button
                           type="button"
@@ -286,7 +286,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
           ) : (
             <>
               <p className="text-xs text-[#475569]">
-                Aşağıdaki endüstriyel Delta DVP ve üniversite laboratuvarı devrelerinden birini seçip ızgaraya yükleyebilir, saf IL kodunu inceleyebilir veya tek tıkla sanal simülasyonda çalıştırabilirsiniz.
+                Hazır bir devre seçin: diyagrama yükleyip düzenleyebilir ya da doğrudan simülasyonda deneyebilirsiniz.
               </p>
 
               {visibleTemplates.map((tpl) => {
@@ -360,7 +360,7 @@ export const TemplatesModal: React.FC<TemplatesModalProps> = ({
                           onClick={() => onLoadTemplate(tpl.buildProgram(effectiveModel), false)}
                           className="h-9 px-3.5 rounded border border-[#0B4EA2] bg-[#EEF4FC] hover:bg-[#DCE9FA] text-xs font-semibold text-[#0B4EA2] cursor-pointer transition-colors"
                         >
-                          Izgaraya Yükle
+                          Diyagrama Yükle
                         </button>
                         <button
                           type="button"

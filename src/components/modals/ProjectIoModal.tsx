@@ -21,6 +21,11 @@ import type { CompileResult, LadderProgram } from '../../types/plc';
 import { MAX_IL_INPUT_BYTES, parseIlToLadder, type IlParseError } from '../../core/ilParser';
 import { copyTextToClipboard } from '../../core/clipboard';
 import {
+  buildCommentedIlText,
+  buildDeviceCommentListText,
+  listDeviceComments,
+} from '../../core/commentExport';
+import {
   clearDraftStorage,
   deleteProjectFromLibrary,
   duplicateProjectInLibrary,
@@ -82,6 +87,8 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<IoTab>('export_il');
   const [copiedIl, setCopiedIl] = useState(false);
+  // 'pure': WPLSoft komut ekranına yapıştırmak için saf IL; 'commented': açıklamalı IL
+  const [exportMode, setExportMode] = useState<'pure' | 'commented'>('pure');
   const [confirmingReset, setConfirmingReset] = useState(false);
 
   // IL Import states
@@ -197,12 +204,18 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
 
   const fileSlug = sanitizeFileSlug(program.projectName);
 
+  const commentedIlText = buildCommentedIlText(program, compileResult);
+  const deviceCommentList = listDeviceComments(program);
+  const exportText = exportMode === 'pure' ? compileResult.rawIlText : commentedIlText;
+
   const handleCopyPureIl = async () => {
-    const ok = await copyTextToClipboard(compileResult.rawIlText);
+    const ok = await copyTextToClipboard(exportText);
     if (ok) {
       setCopiedIl(true);
       onNotify(
-        'Saf Delta IL kodu panoya kopyalandı (satır numarasız, PC WPLSoft Ctrl+V uyumlu).'
+        exportMode === 'pure'
+          ? 'IL kodu panoya kopyalandı. WPLSoft komut ekranına Ctrl+V ile yapıştırabilirsiniz.'
+          : 'Açıklamalı IL kodu panoya kopyalandı.'
       );
       window.setTimeout(() => setCopiedIl(false), 1800);
     } else {
@@ -211,12 +224,25 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   };
 
   const handleDownloadIl = (ext: 'il' | 'txt') => {
-    triggerFileDownload(
-      `${fileSlug}.${ext}`,
-      `${compileResult.rawIlText}\n`,
-      'text/plain;charset=utf-8'
+    const name = exportMode === 'pure' ? `${fileSlug}.${ext}` : `${fileSlug}_aciklamali.${ext}`;
+    let body = `${exportText}\n`;
+    if (exportMode === 'commented' && deviceCommentList.length > 0) {
+      // END'den sonraki satırlar içe aktarmada yok sayılır; açıklama listesi bilgi amaçlıdır.
+      body += `\n// --- Aygıt Açıklamaları ---\n${deviceCommentList
+        .map((e) => `// ${e.address.padEnd(6)} ${e.comment}`)
+        .join('\n')}\n`;
+    }
+    triggerFileDownload(name, body, 'text/plain;charset=utf-8');
+    onNotify(`${name} dosyası indirildi.`);
+  };
+
+  const handleCopyCommentList = async () => {
+    const ok = await copyTextToClipboard(buildDeviceCommentListText(program));
+    onNotify(
+      ok
+        ? 'Aygıt açıklama listesi kopyalandı (Adres <Tab> Açıklama).'
+        : 'Panoya erişilemedi; listeyi seçerek manuel kopyalayabilirsiniz.'
     );
-    onNotify(`${fileSlug}.${ext} dosyası indirildi (satır numarasız WPLSoft biçimi).`);
   };
 
   const handleLoadIlFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -265,7 +291,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       ilDraft,
       program.model,
       program.projectName,
-      {}
+      program.deviceComments
     );
     setIlErrors(result.errors);
     setIlWarnings(result.warnings);
@@ -350,7 +376,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <FolderOpen className="w-4 h-4 shrink-0" aria-hidden="true" />
             <h2 id="project-io-modal-title" className="text-sm font-semibold truncate">
-              PC WPLSoft İçe / Dışa Aktarma &amp; Proje Yedeği
+              Dosya, WPLSoft Aktarımı ve Projeler
             </h2>
           </div>
           <button
@@ -382,7 +408,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
             }`}
           >
             <Download className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>WPLSoft Dışa Aktar (.il / .txt)</span>
+            <span>Dışa Aktar</span>
           </button>
 
           <button
@@ -398,7 +424,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
             }`}
           >
             <Upload className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>IL İçe Aktar (IL → Ladder)</span>
+            <span>İçe Aktar</span>
           </button>
 
           <button
@@ -414,7 +440,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
             }`}
           >
             <FileJson className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>Proje Yedeği (.json)</span>
+            <span>Yedek (.json)</span>
           </button>
 
           <button
@@ -574,14 +600,46 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
           )}
           {activeTab === 'export_il' && (
             <div className="space-y-3">
-              <div className="bg-[#EEF4FC] border border-[#BFD5F4] rounded p-3 text-[#1E3A8A] leading-relaxed">
-                <strong>PC WPLSoft Doğrudan Yapıştırma (Ctrl+V) Biçimi:</strong> Aşağıdaki Instruction List (IL) çıktısında adım/satır numarası yer almaz. Kopyalayıp veya indirip masaüstü Delta WPLSoft&apos;un <em>Instruction List Mode</em> ekranına doğrudan yapıştırabilirsiniz.
+              <div
+                role="radiogroup"
+                aria-label="Dışa aktarım biçimi"
+                className="grid grid-cols-2 gap-1 p-1 rounded border border-[#CBD2DC] bg-[#F4F6F9]"
+              >
+                {(
+                  [
+                    { id: 'pure', title: 'WPLSoft için (saf)', sub: 'Komut ekranına Ctrl+V' },
+                    { id: 'commented', title: 'Açıklamalı', sub: 'Etiket ve ağ başlıkları ile' },
+                  ] as const
+                ).map((opt) => (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={exportMode === opt.id}
+                    data-testid={`export-mode-${opt.id}`}
+                    onClick={() => setExportMode(opt.id)}
+                    className={`rounded px-2.5 py-1.5 text-left cursor-pointer transition-colors ${
+                      exportMode === opt.id
+                        ? 'bg-white border border-[#0B4EA2] text-[#0B4EA2] shadow-sm'
+                        : 'border border-transparent text-[#475569] hover:bg-white/60'
+                    }`}
+                  >
+                    <span className="block text-xs font-bold">{opt.title}</span>
+                    <span className="block text-[11px] opacity-80">{opt.sub}</span>
+                  </button>
+                ))}
               </div>
+
+              <p className="text-[#475569] leading-relaxed">
+                {exportMode === 'pure'
+                  ? "Adım numarası ve açıklama içermez; masaüstü WPLSoft'un komut (Instruction) ekranına doğrudan yapıştırılır."
+                  : "Ağ başlıkları ve aygıt açıklamaları // ile eklenir. Bu dosyayı bu uygulamaya geri yüklediğinizde açıklamalar korunur."}
+              </p>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-semibold text-[#0F172A]">
-                    Saf Delta IL Çıktısı ({compileResult.stepCount} Step)
+                    IL Kodu ({compileResult.stepCount} Step)
                   </span>
                   <span className="font-mono text-[11px] text-[#64748B]">
                     {program.model}
@@ -589,10 +647,11 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                 </div>
                 <textarea
                   readOnly
-                  aria-label="Saf Delta IL dışa aktarım metni"
+                  aria-label="IL dışa aktarım metni"
                   data-testid="export-il-textarea"
-                  value={compileResult.rawIlText}
+                  value={exportText}
                   rows={10}
+                  wrap="off"
                   className="w-full rounded border border-[#B8C2D1] bg-[#F8FAFC] p-3 font-mono text-xs text-[#0F172A] leading-relaxed focus:outline-none focus:ring-2 focus:ring-[#0B4EA2]/30"
                 />
               </div>
@@ -637,6 +696,45 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                   <span>.txt Olarak İndir</span>
                 </button>
               </div>
+
+              <div className="border border-[#DDE3EC] rounded" data-testid="device-comment-list">
+                <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[#DDE3EC] bg-[#F8FAFC]">
+                  <span className="font-semibold text-[#0F172A]">
+                    Aygıt Açıklamaları ({deviceCommentList.length})
+                  </span>
+                  {deviceCommentList.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleCopyCommentList}
+                      data-testid="copy-comment-list-btn"
+                      className="h-7 px-2.5 rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-[#1E293B] text-[11px] font-semibold flex items-center gap-1 cursor-pointer"
+                    >
+                      <ClipboardCopy className="w-3 h-3" aria-hidden="true" />
+                      <span>Listeyi Kopyala</span>
+                    </button>
+                  )}
+                </div>
+                {deviceCommentList.length === 0 ? (
+                  <p className="px-3 py-2.5 text-[#64748B]">
+                    Henüz açıklama yok. Bir elemanı düzenlerken &quot;Aygıt Açıklaması&quot; alanına yazabilirsiniz.
+                  </p>
+                ) : (
+                  <>
+                    <ul className="max-h-40 overflow-y-auto wpl-scrollbar divide-y divide-[#EEF1F5]">
+                      {deviceCommentList.map((e) => (
+                        <li key={e.address} className="flex gap-3 px-3 py-1.5">
+                          <span className="font-mono font-bold text-[#0B4EA2] w-14 shrink-0">{e.address}</span>
+                          <span className="text-[#1E293B] truncate">{e.comment}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="px-3 py-2 border-t border-[#DDE3EC] text-[11px] text-[#64748B] leading-relaxed">
+                      Saf (WPLSoft için) kodda açıklama bulunmaz. Açıklamaları WPLSoft&apos;ta da görmek için bu
+                      listeyi WPLSoft&apos;un aygıt açıklaması (Device Comment) bölümüne girebilirsiniz.
+                    </p>
+                  </>
+                )}
+              </div>
             </div>
           )}
 
@@ -644,7 +742,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
             <div className="space-y-3">
               <div className="flex items-start justify-between gap-2 flex-wrap">
                 <p className="text-[#475569] leading-relaxed flex-1">
-                  PC WPLSoft&apos;tan kopyalanan (başında <code className="font-mono bg-[#F1F5F9] px-1 rounded">0000</code> adım numarası veya <code className="font-mono bg-[#F1F5F9] px-1 rounded">//</code>, <code className="font-mono bg-[#F1F5F9] px-1 rounded">;</code> yorum içeren) IL kodlarını doğrudan yapıştırın. <code className="font-mono">ORB</code> ve <code className="font-mono">ANB</code> blokları otomatik olarak Ladder ızgarasına çevrilir.
+                  WPLSoft&apos;tan kopyaladığınız komut listesini (IL) buraya yapıştırın; otomatik olarak Ladder diyagramına çevrilir. Başındaki adım numaraları (<code className="font-mono bg-[#F1F5F9] px-1 rounded">0000</code>) sorun değildir. Satır sonundaki <code className="font-mono bg-[#F1F5F9] px-1 rounded">// açıklama</code> metinleri aygıt açıklaması olarak alınır.
                 </p>
                 <div className="shrink-0">
                   <input
@@ -812,8 +910,8 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
               {/* Automatic Draft Info */}
               <div className="bg-[#F4F6F9] border border-[#CBD2DC] rounded p-3 flex items-center justify-between gap-2 flex-wrap">
                 <div className="text-[#334155]">
-                  <strong className="text-[#0F172A]">Otomatik Yerel Taslak (localStorage):</strong>{' '}
-                  Her değişiklik otomatik kaydedilir ve sayfa yenilendiğinde geri yüklenir.
+                  <strong className="text-[#0F172A]">Otomatik kayıt:</strong>{' '}
+                  Yaptığınız her değişiklik bu tarayıcıda saklanır; sayfayı kapatıp açtığınızda kaldığınız yerden devam edersiniz.
                 </div>
                 <button
                   type="button"

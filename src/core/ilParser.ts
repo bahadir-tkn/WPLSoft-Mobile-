@@ -478,6 +478,21 @@ export function cleanIlLine(raw: string): string {
 }
 
 /**
+ * Bir komut satırındaki açıklamanın hangi aygıta ait olduğunu bulur.
+ * Düzenleyicideki kuralla aynıdır: kontak/bobin/TMR/CNT için ilk operand,
+ * sonuç yazan komutlar (MOV, CMP, ADD...) için hedef operand.
+ */
+export function commentTargetForInstruction(opcode: string, tokens: string[]): string | null {
+  const op = opcode.toUpperCase();
+  let idx = 1;
+  if (['MOV', 'SQR', 'FLT', 'DMOVR', 'DESQR'].includes(op)) idx = 2;
+  else if (['CMP', 'ADD', 'SUB', 'MUL', 'DIV', 'DADDR', 'DSUBR', 'DMULR', 'DDIVR'].includes(op)) idx = 3;
+  else if (op === 'TZCP') idx = 4;
+  const raw = tokens[idx]?.toUpperCase();
+  return raw && /^[XYMTCD]\d{1,5}$/.test(raw) ? raw : null;
+}
+
+/**
  * Parses Delta WPLSoft Instruction List (IL) text into a complete LadderProgram.
  */
 export function parseIlToLadder(
@@ -537,6 +552,8 @@ export function parseIlToLadder(
   let inOutputPhase = false;
   let sawEnd = false;
   let pendingRungComment: string | undefined;
+  // Satır sonu açıklamaları (ör. "LD X0 // Start") aygıt açıklaması olarak alınır.
+  const inlineComments: Record<string, string> = {};
 
   const combineTopFrameLogic = (): LogicNode => {
     const top = mpsStack[mpsStack.length - 1];
@@ -734,6 +751,13 @@ export function parseIlToLadder(
     if (tokens.length === 0) continue;
 
     const opcode = tokens[0].toUpperCase();
+
+    const inlineMatch = /(?:\/\/|;)\s*(.+)$/.exec(rawLine);
+    if (inlineMatch) {
+      const target = commentTargetForInstruction(opcode, tokens);
+      const text = inlineMatch[1].trim().slice(0, 64);
+      if (target && text) inlineComments[target] = text;
+    }
 
     if (opcode === 'END') {
       if (mpsStack.length > 0 || inOutputPhase || pendingOutputs.length > 0 || stack.length > 0) {
@@ -1474,7 +1498,7 @@ export function parseIlToLadder(
       success: true,
       program: {
         ...blank,
-        deviceComments: { ...existingComments },
+        deviceComments: { ...existingComments, ...inlineComments },
       },
       errors: [],
       warnings,
@@ -1493,7 +1517,7 @@ export function parseIlToLadder(
       model,
       columns: LADDER_TOTAL_COLUMNS,
       rungs: finalRungs,
-      deviceComments: { ...existingComments },
+      deviceComments: { ...existingComments, ...inlineComments },
       updatedAt: now,
     },
     errors: [],

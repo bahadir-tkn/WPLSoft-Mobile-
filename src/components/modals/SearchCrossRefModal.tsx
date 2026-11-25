@@ -119,7 +119,7 @@ export const SearchCrossRefModal: React.FC<SearchCrossRefModalProps> = ({
           <div className="flex items-center gap-2 min-w-0">
             <Search className="w-4 h-4 shrink-0" aria-hidden="true" />
             <h2 id="search-crossref-title" className="text-sm font-semibold truncate">
-              Ladder Arama &amp; Kullanılan Adresler (Cross-Reference)
+              Ara ve Kullanılan Adresler
             </h2>
           </div>
           <button

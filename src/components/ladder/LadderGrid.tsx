@@ -325,7 +325,7 @@ export const LadderGrid: React.FC<LadderGridProps> = ({
         >
           <div className="flex items-center gap-2 text-xs text-[#475569] min-w-0 font-mono">
             <span className="font-semibold text-[#0F172A] whitespace-nowrap">
-              Ağ {String(cursor.rungIndex).padStart(2, '0')}
+              Ağ {String(cursor.rungIndex).padStart(3, '0')}
             </span>
             <span aria-hidden="true" className="text-[#94A3B8]">
               ·

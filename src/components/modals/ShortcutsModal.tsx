@@ -69,7 +69,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
 
           <section className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="border border-[#DDE3EC] rounded p-3 space-y-1.5">
-              <h3 className="font-bold text-[#0F172A]">Izgara Gezinme Tuşları</h3>
+              <h3 className="font-bold text-[#0F172A]">Gezinme Tuşları</h3>
               <div className="flex justify-between">
                 <span className="text-[#475569]">Hücreler arası gezinme</span>
                 <kbd className="font-mono font-semibold text-[#0B4EA2]">↑ ↓ ← →</kbd>

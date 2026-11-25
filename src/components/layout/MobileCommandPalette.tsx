@@ -493,8 +493,9 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
           )}
         </button>
 
-        {/* Scrollable Quick Strip */}
-        <div className="flex-1 flex items-center gap-1 overflow-x-auto wpl-no-scrollbar min-w-0">
+        {/* Scrollable Quick Strip (sağdaki solgunluk, kaydırılabilir olduğunu gösterir) */}
+        <div className="relative flex-1 min-w-0">
+        <div className="flex items-center gap-1 overflow-x-auto wpl-no-scrollbar min-w-0 pr-5">
           {isSelectedEditable && (
             <button
               type="button"
@@ -510,11 +511,11 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
               { toolId: 'F1', text: 'NO' },
               { toolId: 'F2', text: 'NC' },
               { toolId: 'F7', text: 'OUT' },
-              { toolId: 'F6', text: 'TMR' },
-              { toolId: 'F9', text: 'Hat' },
               { toolId: 'F10', text: 'Paralel' },
-              { toolId: 'F11', text: '+Satır' },
+              { toolId: 'F9', text: 'Hat' },
+              { toolId: 'F6', text: 'TMR' },
               { toolId: 'F12', text: 'Sil' },
+              { toolId: 'F11', text: '+Satır' },
             ] as const
           ).map((btn) => {
             const isActive = activeTool === btn.toolId;
@@ -538,6 +539,11 @@ export const MobileCommandPalette: React.FC<MobileCommandPaletteProps> = ({
               </button>
             );
           })}
+        </div>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute right-0 top-0 bottom-0 w-6 bg-gradient-to-l from-[#EEF2F7] to-transparent"
+          />
         </div>
 
         {/* Right Compact Utilities: Quick Command Toggle + Zoom Cycle */}

@@ -138,7 +138,7 @@ export const WplHeader: React.FC<WplHeaderProps> = ({
                 aria-label="PLC Modeli"
                 value={model}
                 onChange={(e) => onModelChange(e.target.value as PlcModelId)}
-                className={`${controlHeight} w-[74px] sm:w-auto min-w-0 rounded border border-[#B8C2D1] bg-white px-1 sm:px-2 text-[11px] sm:text-xs font-mono font-semibold text-[#0B4EA2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] cursor-pointer`}
+                className={`${controlHeight} w-[88px] sm:w-auto min-w-0 rounded border border-[#B8C2D1] bg-white px-1 sm:px-2 text-[11px] sm:text-xs font-mono font-semibold text-[#0B4EA2] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] cursor-pointer`}
               >
                 {PLC_MODEL_LIST.map((spec) => (
                   <option key={spec.id} value={spec.id}>
