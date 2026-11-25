@@ -357,7 +357,22 @@ export function useLadderEditor(
             .some((c) => isLogicElement(c.element));
           if (!hasOwnLogic) {
             const upperRow = rung.rows[pos.rowIndex - 1];
-            if (upperRow && upperRow[LADDER_COIL_COLUMN - 1]) {
+            // Kullanıcının bu satıra indirdiği bir paralel kol varsa çıkış o kola bağlanır:
+            // kolun indiği noktadan çıkış sütununa kadar yatay hat çekilir (yeni kol açılmaz).
+            let entryBoundary = -1;
+            for (let c = 0; c < LADDER_COIL_COLUMN - 1; c += 1) {
+              if (upperRow?.[c]?.branchDown) {
+                entryBoundary = c + 1;
+                break;
+              }
+            }
+            if (entryBoundary > 0) {
+              for (let c = entryBoundary; c < LADDER_COIL_COLUMN; c += 1) {
+                if (row[c].element.kind === 'EMPTY') {
+                  row[c] = { ...row[c], element: { kind: 'HLINE' } };
+                }
+              }
+            } else if (upperRow && upperRow[LADDER_COIL_COLUMN - 1]) {
               upperRow[LADDER_COIL_COLUMN - 1] = {
                 ...upperRow[LADDER_COIL_COLUMN - 1],
                 branchDown: true,

@@ -264,6 +264,30 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     errors.assertZeroErrors();
   });
 
+  test('Output placed beside a dropped parallel branch connects to that branch (no extra branch)', async ({
+    page,
+  }) => {
+    const errors = attachErrorCollectors(page);
+    const place = async (cell: string, key: string, addr: string) => {
+      await page.getByTestId(cell).click();
+      await page.keyboard.press(key);
+      await page.locator('#cell-primary-input').fill(addr);
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#cell-primary-input')).toBeHidden();
+    };
+    await place('cell-0-0-0', 'F1', 'X0');
+    await place('cell-0-0-1', 'F1', 'X1');
+    await place('cell-0-0-8', 'F7', 'Y0');
+    await page.getByTestId('cell-0-0-1').click();
+    await page.keyboard.press('F10');
+    await place('cell-0-1-1', 'F7', 'Y1');
+    // Y1, X0'dan sonra indirilen kola bağlanır: Y1 = X0, Y0 = X0 AND X1
+    await expect(page.getByTestId('il-code-list')).toContainText(
+      /LD\s*X0[\s\S]*MPS[\s\S]*AND\s*X1[\s\S]*OUT\s*Y0[\s\S]*MPP[\s\S]*OUT\s*Y1/
+    );
+    errors.assertZeroErrors();
+  });
+
   test('StrictMode Undo/Redo reliability: single, sequential, redo, and future-clear on new edit', async ({
     page,
   }) => {
