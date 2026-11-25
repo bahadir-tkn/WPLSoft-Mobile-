@@ -44,7 +44,9 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 | **F9** | Yatay çizgi |
 | **F10** | Paralel kol — seçili hücrenin **solundan** aşağı iner (gerçek WPLSoft gibi) |
 | **F11** | Yeni satır ekle |
-| **F12** | Sil |
+| **F12** veya **Del** | Sil |
+| **Enter** | Seçili elemanı düzenle |
+| **Ctrl+Z / Ctrl+Y** | Geri al / İleri al |
 
 Telefonda bu tuşların yerine üstteki **Komutlar** menüsünü kullanabilirsiniz.
 

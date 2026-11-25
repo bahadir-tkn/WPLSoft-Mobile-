@@ -59,9 +59,21 @@ function isSimpleLeaf(node: LogicAstNode): boolean {
 }
 
 function instructionStepCost(opcode: IlOpcode): number {
+  // Adım sayıları Delta DVP programlama kılavuzundaki komut tablosuna göredir.
+  if (opcode === 'TMR' || opcode === 'CNT') {
+    return 4;
+  }
   if (
-    opcode === 'TMR' ||
-    opcode === 'CNT' ||
+    opcode === 'LDP' ||
+    opcode === 'LDF' ||
+    opcode === 'ANDP' ||
+    opcode === 'ANDF' ||
+    opcode === 'ORP' ||
+    opcode === 'ORF'
+  ) {
+    return 3;
+  }
+  if (
     opcode === 'ALT' ||
     opcode === 'INC' ||
     opcode === 'INCP' ||

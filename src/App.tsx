@@ -387,10 +387,11 @@ export default function App() {
 
   const handleLoadTemplate = useCallback(
     (templateProgram: LadderProgram, startSimulation: boolean) => {
-      editor.loadExternalProgram(
+      const loaded = editor.loadExternalProgram(
         templateProgram,
         `"${templateProgram.projectName}" şablonu yüklendi.`
       );
+      if (!loaded) return;
       setIsTemplatesModalOpen(false);
       if (startSimulation) {
         if (!viewport.isDesktopWide) {
@@ -464,6 +465,27 @@ export default function App() {
         if (isOnlineMode) return;
         e.preventDefault();
         editor.triggerTool(e.key as FunctionToolId);
+        return;
+      }
+
+      // Enter/Delete yalnızca diyagram odaktayken (boş alan veya bir hücre) çalışır;
+      // başka bir düğme odaktayken o düğmenin kendi davranışı bozulmaz.
+      const focusOnGrid =
+        !target ||
+        target === document.body ||
+        (target.getAttribute('data-testid') ?? '').startsWith('cell-');
+
+      if (isOnlineMode || !focusOnGrid) {
+        // Simülasyonda düzenleme kısayolları kapalı; yalnızca ok tuşlarıyla gezinme.
+      } else if (e.key === 'Delete' || e.key === 'Backspace') {
+        // WPLSoft'taki gibi Del tuşu seçili hücreyi siler (F12 ile aynı).
+        e.preventDefault();
+        editor.triggerTool('F12');
+        return;
+      } else if (e.key === 'Enter') {
+        // Enter: seçili elemanı düzenle.
+        e.preventDefault();
+        editor.openEditModalForCell(editor.cursor);
         return;
       }
 

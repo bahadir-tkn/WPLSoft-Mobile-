@@ -79,6 +79,10 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
                 <kbd className="font-mono font-semibold text-[#0B4EA2]">Home / End</kbd>
               </div>
               <div className="flex justify-between">
+                <span className="text-[#475569]">Seçili elemanı düzenle / sil</span>
+                <kbd className="font-mono font-semibold text-[#0B4EA2]">Enter / Del</kbd>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-[#475569]">Yeni satır ekle</span>
                 <kbd className="font-mono font-semibold text-[#0B4EA2]">F11</kbd>
               </div>

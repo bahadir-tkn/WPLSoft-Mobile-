@@ -156,6 +156,60 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     errors.assertZeroErrors();
   });
 
+  test('WPLSoft drawing order: contact below first, then F10 joins it; Del/Enter keys; model-switch guard', async ({
+    page,
+  }) => {
+    const errors = attachErrorCollectors(page);
+    const place = async (cell: string, key: string, addr: string) => {
+      await page.getByTestId(cell).click();
+      await page.keyboard.press(key);
+      await page.locator('#cell-primary-input').fill(addr);
+      await page.keyboard.press('Enter');
+      await expect(page.locator('#cell-primary-input')).toBeHidden();
+    };
+
+    await place('cell-0-0-0', 'F1', 'X0');
+    await place('cell-0-0-1', 'F2', 'X1');
+    await place('cell-0-0-8', 'F7', 'Y0');
+    // Gerçek WPLSoft sırası: önce alt satıra kontak, sonra dikey çizgi
+    await place('cell-1-0-0', 'F1', 'Y0');
+    await page.getByTestId('cell-0-0-1').click();
+    await page.keyboard.press('F10');
+
+    const ilList = page.getByTestId('il-code-list');
+    await expect(ilList).toContainText(/LD\s*X0[\s\S]*OR\s*Y0[\s\S]*ANI\s*X1[\s\S]*OUT\s*Y0/);
+    await expect(page.getByTestId('cell-0-1-0')).toContainText('Y0');
+
+    // Seal-in works in simulation
+    await page.getByTestId('toggle-online-btn').click();
+    await page.getByTestId('input-btn-X0').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X0').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /ON/);
+    await page.getByTestId('input-btn-X1').click();
+    await expect(page.getByTestId('output-led-Y0')).toHaveAttribute('aria-label', /OFF/);
+    await page.getByTestId('toggle-online-btn').click();
+
+    // Enter edits the selected element, Delete removes it
+    await page.getByTestId('cell-0-0-0').click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    await expect(page.locator('#cell-primary-input')).toHaveValue('X0');
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Delete');
+    await expect(page.getByTestId('cell-0-0-0')).not.toContainText('X0');
+
+    // Model switch is refused when the program uses SX2-only registers
+    await page.getByTestId('open-templates-btn').click();
+    await page.getByTestId('load-template-sx2-analog-temp').click();
+    await page.locator('#plc-model-select').selectOption('DVP-14SS2');
+    await expect(page.locator('#plc-model-select')).toHaveValue('DVP-SX2');
+    await page.reload();
+    await expect(page.getByTestId('il-code-list')).toContainText('D1110');
+
+    errors.assertZeroErrors();
+  });
+
   test('StrictMode Undo/Redo reliability: single, sequential, redo, and future-clear on new edit', async ({
     page,
   }) => {
