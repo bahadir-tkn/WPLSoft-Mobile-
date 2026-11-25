@@ -289,7 +289,7 @@ export function parseQuickCommand(
   }
 
   // 6. ALT D
-  if (opcode === 'ALT') {
+  if (opcode === 'ALT' || opcode === 'ALTP') {
     if (args.length !== 1) {
       return { valid: false, error: 'ALT komutu 1 hedef bit gerektirir (Örn: ALT M0).' };
     }
@@ -299,10 +299,10 @@ export function parseQuickCommand(
     }
     return {
       valid: true,
-      element: { kind: 'ALT', target: tgtRes.value },
+      element: { kind: 'ALT', target: tgtRes.value, pulsed: opcode === 'ALTP' || undefined },
       targetScope: 'output',
       isParallelOr: false,
-      summary: `ALT ${tgtRes.value}`,
+      summary: `${opcode} ${tgtRes.value}`,
     };
   }
 

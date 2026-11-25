@@ -272,11 +272,15 @@ function validateCellElement(
       if (!tgt.valid || !tgt.parsed) {
         return { valid: false, error: `${locationTag} ALT: ${tgt.error ?? 'Geçersiz.'}` };
       }
+      if (el.pulsed !== undefined && typeof el.pulsed !== 'boolean') {
+        return { valid: false, error: `${locationTag}: ALT pulsed alanı boolean olmalıdır.` };
+      }
       return {
         valid: true,
         element: {
           kind: 'ALT',
           target: tgt.parsed.normalized,
+          pulsed: el.pulsed === true ? true : undefined,
           comment: optionalComment(el.comment),
         },
       };

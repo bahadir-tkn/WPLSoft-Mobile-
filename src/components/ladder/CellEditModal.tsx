@@ -57,6 +57,7 @@ type AppCmdKind =
   | 'CNT'
   | 'MOV'
   | 'ALT'
+  | 'ALTP'
   | 'ZRST'
   | 'CMP'
   | 'ADD'
@@ -90,6 +91,7 @@ const APP_CMD_GROUPS: {
       { id: 'TMR', short: 'TMR' },
       { id: 'CNT', short: 'CNT' },
       { id: 'MOV', short: 'MOV' },
+      { id: 'ALTP', short: 'ALTP' },
       { id: 'ALT', short: 'ALT' },
       { id: 'ZRST', short: 'ZRST' },
     ],
@@ -425,7 +427,7 @@ function getInitialFields(
     secondaryInput = element.destination;
     commentKey = element.destination;
   } else if (element.kind === 'ALT') {
-    appCmdKind = 'ALT';
+    appCmdKind = element.pulsed ? 'ALTP' : 'ALT';
     primaryInput = element.target;
     commentKey = element.target;
   } else if (element.kind === 'ZRST') {
@@ -737,10 +739,13 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       secondaryLabel = '2. Float Terim (S2: F / D)';
       tertiaryLabel = '32-Bit Sonuç (D, D+1)';
       helperHint = `${appCmdKind}: 32-bit IEEE-754 kayan noktalı işlem yapar ve sonucu (D, D+1) register çiftine yazar.`;
-    } else if (appCmdKind === 'ALT') {
+    } else if (appCmdKind === 'ALT' || appCmdKind === 'ALTP') {
       primaryRole = 'bit_coil';
       primaryLabel = 'Flip-Flop Hedef Biti (Y / M)';
-      helperHint = 'Girişin her yükselen kenarında hedef bitin durumunu tersler.';
+      helperHint =
+        appCmdKind === 'ALTP'
+          ? 'ALTP: girişin her yükselen kenarında hedef biti bir kez tersler (tek butonla aç/kapa).'
+          : 'ALT: giriş açık kaldığı sürece her taramada tersler. Tek butonla aç/kapa için ALTP veya LDP kontak kullanın.';
     } else if (appCmdKind === 'ZRST') {
       primaryRole = 'rst_target';
       secondaryRole = 'rst_target';
@@ -888,7 +893,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       setSecondaryInput('D20');
       setTertiaryInput('D30');
       setComment('');
-    } else if (nextKind === 'ALT') {
+    } else if (nextKind === 'ALT' || nextKind === 'ALTP') {
       setPrimaryInput('Y0');
       setComment('');
     } else if (nextKind === 'ZRST') {
@@ -1022,8 +1027,11 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
           },
           comment
         );
-      } else if (appCmdKind === 'ALT') {
-        onSave({ kind: 'ALT', target: pNorm, comment: cleanComment }, comment);
+      } else if (appCmdKind === 'ALT' || appCmdKind === 'ALTP') {
+        onSave(
+          { kind: 'ALT', target: pNorm, pulsed: appCmdKind === 'ALTP' || undefined, comment: cleanComment },
+          comment
+        );
       } else if (appCmdKind === 'ZRST') {
         onSave({ kind: 'ZRST', start: pNorm, end: sNorm, comment: cleanComment }, comment);
       } else if (appCmdKind === 'CMP') {

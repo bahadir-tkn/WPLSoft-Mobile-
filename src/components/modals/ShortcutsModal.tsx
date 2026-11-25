@@ -101,7 +101,7 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ isOpen, onClose 
               <p className="text-[#475569] leading-relaxed">
                 Desteklenen komutlar:{' '}
                 <span className="font-mono text-[#0F172A]">
-                  LD, LDI, LDP, LDF, AND, ANI, ANDP, ANDF, OR, ORI, ORP, ORF, ANB, ORB, MPS, MRD, MPP, NP, PN, LD=..LD&lt;&gt;, OUT, SET, RST, TMR, CNT, MOV, ALT, ZRST, CMP, ADD, SUB, MUL, DIV, SQR, DMOVR, DADDR..DDIVR, DESQR, FLT, INC, INCP, DEC, DECP, TRD, TWR, TWRP, TZCP, STL, RET, END
+                  LD, LDI, LDP, LDF, AND, ANI, ANDP, ANDF, OR, ORI, ORP, ORF, ANB, ORB, MPS, MRD, MPP, NP, PN, LD=..LD&lt;&gt;, OUT, SET, RST, TMR, CNT, MOV, ALT, ALTP, ZRST, CMP, ADD, SUB, MUL, DIV, SQR, DMOVR, DADDR..DDIVR, DESQR, FLT, INC, INCP, DEC, DECP, TRD, TWR, TWRP, TZCP, STL, RET, END
                 </span>
                 . Kopyalanan / dışa aktarılan IL çıktıları PC WPLSoft&apos;a doğrudan{' '}
                 <span className="font-mono">Ctrl+V</span> ile yapıştırılabilmesi için satır numarasız saf komut formatında üretilir.

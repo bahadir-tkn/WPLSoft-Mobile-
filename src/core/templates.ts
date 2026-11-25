@@ -11,6 +11,7 @@ export type TemplateId =
   | 'dynamic-counter'
   | 'adjustable-timer'
   | 'sx2-analog-temp'
+  | 'deney4-camasir-makinesi'
   | 'deney5-dalgic-pompa'
   | 'deney6-su-kopuk';
 
@@ -611,6 +612,100 @@ function buildFromIl(
   return { ...parsed.program, projectName, updatedAt: new Date().toISOString() };
 }
 
+// Deney 4 — PLC ile Çamaşır Makinesi Uygulaması (Şekil 3)
+const DENEY4_IL = [
+  'LD X0',
+  'SET M0',
+  '// SU AL: Y2 su valfi, X1 su seviye şamandırası',
+  'LD M0',
+  'ANI M10',
+  'SET Y2',
+  'AND X1',
+  'RST Y2',
+  'SET M10',
+  'SET M11',
+  '// ISITICI: 60 derece X2 sensörü, ısıtıcı Y5',
+  'LD M0',
+  'AND M11',
+  'SET Y5',
+  'AND X2',
+  'RST Y5',
+  'RST M11',
+  'SET M12',
+  '// DETERJAN ALMA: 5 saniye, valf Y3',
+  'LD M0',
+  'AND M12',
+  'SET Y3',
+  'TMR T3 K50',
+  'AND T3',
+  'RST Y3',
+  'RST M12',
+  'SET M13',
+  '// TAMBURU SAĞA ÇEVİR',
+  'LD M0',
+  'AND M13',
+  'SET Y0',
+  'TMR T0 K20',
+  'AND T0',
+  'RST Y0',
+  'RST M13',
+  'SET M14',
+  '// TAMBURU SOLA ÇEVİR, 4 KEZ İŞLEMİ TEKRARLA',
+  'LD M0',
+  'AND M14',
+  'SET Y1',
+  'TMR T1 K20',
+  'AND T1',
+  'RST Y1',
+  'RST M14',
+  'SET M13',
+  'CNT C0 K4',
+  'AND C0',
+  'RST M13',
+  'SET M15',
+  '// SUYU TAHLİYE ET: 10 saniye',
+  'LD M0',
+  'AND M15',
+  'SET Y4',
+  'TMR T2 K100',
+  'AND T2',
+  'RST M15',
+  'SET M16',
+  '// TÜM ÇIKIŞLARI (Y0–Y5) SIFIRLA',
+  'LD M0',
+  'AND M16',
+  'ZRST Y0 Y5',
+  'RST M0',
+  'END',
+].join('\n');
+
+function buildDeney4Program(model: PlcModelId): LadderProgram {
+  return buildFromIl(DENEY4_IL, model, 'Deney4_Camasir_Makinesi', {
+    X0: 'Açma-Kapama Düğmesi',
+    X1: 'Su Seviyesi Sensörü',
+    X2: 'Sıcaklık Sensörü',
+    Y0: 'Motor İleri Sağa',
+    Y1: 'Motor Geri Sola',
+    Y2: 'Su Valfi',
+    Y3: 'Deterjan',
+    Y4: 'Pompa Tahliye',
+    Y5: 'Isıtıcı',
+    M0: 'Çalışma (RUN)',
+    M10: 'Su Alındı',
+    M11: 'Isıtma',
+    M12: 'Deterjan Alma',
+    M13: 'Sağa Dönüş',
+    M14: 'Sola Dönüş',
+    M15: 'Su Boşaltma',
+    M16: 'Bitiş',
+    T0: 'Sağa Süre',
+    T1: 'Sola Süre',
+    T2: 'Tahliye Süresi',
+    T3: 'Deterjan Süresi',
+    C0: 'Tekrar Sayısı',
+  });
+}
+
 // Deney 5 — PLC ile Dalgıç Pompa Uygulaması (Şekil 3)
 const DENEY5_IL = [
   'LDI X0',
@@ -831,6 +926,24 @@ export const INDUSTRIAL_TEMPLATES: IndustrialTemplateMeta[] = [
       { address: 'Y0 / Y1', role: 'Isıtıcı / İzleme Lambası' },
     ],
     buildProgram: buildSx2AnalogTempProgram,
+  },
+  {
+    id: 'deney4-camasir-makinesi',
+    category: 'experiment',
+    referenceTag: 'Deney 4',
+    title: 'Deney 4: PLC ile Çamaşır Makinesi Uygulaması',
+    subtitle: 'SET, RST, ZRST, TMR ve CNT ile su alma, ısıtma, yıkama ve tahliye',
+    difficulty: 'Orta',
+    description:
+      'X0 ile makine çalışır (M0). Su valfi (Y2) X1 seviyesine kadar açık kalır, ısıtıcı (Y5) X2 sıcaklık sensörüne kadar çalışır, deterjan valfi (Y3) 5 sn açılır. Tambur sağa (Y0) ve sola (Y1) 2’şer sn döner; C0 sayıcısı 4 tur sayınca su 10 sn tahliye edilir (Y4) ve ZRST Y0 Y5 ile tüm çıkışlar kapanır. Föydeki Şekil 3 diyagramıyla aynıdır. Not: M10, M16 ve C0 sıfırlanmadığı için makineyi yeniden çalıştırmadan önce simülasyonu sıfırlayın (gerçek PLC’de STOP→RUN).',
+    ioSummary: [
+      { address: 'X0', role: 'Açma-kapama düğmesi' },
+      { address: 'X1 / X2', role: 'Su seviyesi / Sıcaklık (60 °C)' },
+      { address: 'Y0 / Y1', role: 'Motor sağa / sola' },
+      { address: 'Y2 / Y3 / Y4 / Y5', role: 'Su valfi / Deterjan / Tahliye / Isıtıcı' },
+      { address: 'C0', role: '4 tekrar sayıcı' },
+    ],
+    buildProgram: buildDeney4Program,
   },
   {
     id: 'deney5-dalgic-pompa',
