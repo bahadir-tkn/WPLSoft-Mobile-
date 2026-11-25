@@ -487,8 +487,7 @@ test('Templates: All 7 industrial & textbook templates compile cleanly with zero
     );
     assert.equal(/^\d+\s/m.test(compiled.rawIlText), false);
     assert.equal(compiled.rawIlText.trim().endsWith('END'), true);
-    // Şablonlar hiçbir aygıta otomatik açıklama eklememelidir.
-    assert.equal(Object.keys(program.deviceComments).length, 0, `Template ${tpl.id} must not add device comments`);
+    assert.ok(Object.keys(program.deviceComments).length > 0, `Template ${tpl.id} missing device comments`);
   }
 });
 
@@ -1391,7 +1390,7 @@ test('Phase 7 WiringAnalyzer: Detects SX2 Analog D1110 (AD0) purple wires and su
   assert.ok(plan.connections.some((c) => c.id === 'gnd-relay-com' && c.toPinId === 'relay-com'));
   const y0Wire = plan.connections.find((c) => c.id === 'out-Y0');
   assert.equal(y0Wire?.toPinId, 'relay-Y0');
-  assert.equal(y0Wire?.deviceComment, undefined);
+  assert.equal(y0Wire?.deviceComment, 'Isıtıcı');
 
   // Purple analog wires V0+ and VI0-
   const vPlus = plan.connections.find((c) => c.id === 'ai-vplus-0');
@@ -2704,4 +2703,29 @@ test('A program using SX2-only registers is rejected for SS2/SA2 (model-switch g
     const res = parseProgramJson(serializeProgramJson({ ...analog, model }));
     assert.equal(res.success, false, `${model} should reject SX2-only registers`);
   }
+});
+
+test('Comments survive a commented-IL export and re-import (device + segment comments)', async () => {
+  const { buildCommentedIlText, buildDeviceCommentListText } = await import('./commentExport');
+  for (const tpl of INDUSTRIAL_TEMPLATES) {
+    const model = tpl.requiredModel ?? 'DVP-14SS2';
+    const program = tpl.buildProgram(model);
+    program.rungs[0] = { ...program.rungs[0], comment: 'Ana devre' };
+    const compiled = compileLadderToIl(program);
+    const text = buildCommentedIlText(program, compiled);
+    const reparsed = parseIlToLadder(text, model, program.projectName, {});
+    assert.equal(reparsed.success, true, `${tpl.id}: ${JSON.stringify(reparsed.errors)}`);
+    // Same instructions
+    assert.equal(compileLadderToIl(reparsed.program!).rawIlText, compiled.rawIlText, tpl.id);
+    // Every comment of a device used as an instruction target comes back
+    for (const [addr, comment] of Object.entries(program.deviceComments)) {
+      if (text.includes(`// ${comment}`)) {
+        assert.equal(reparsed.program!.deviceComments[addr], comment, `${tpl.id} ${addr}`);
+      }
+    }
+    assert.equal(reparsed.program!.rungs[0].comment, 'Ana devre', tpl.id);
+  }
+  const ss = getTemplateById('start-stop').buildProgram('DVP-14SS2');
+  assert.equal(buildDeviceCommentListText(ss), 'X0\tStart\nX1\tStop\nY0\tMotor');
+  assert.match(buildCommentedIlText(ss, compileLadderToIl(ss)), /LD X0\s+\/\/ Start/);
 });

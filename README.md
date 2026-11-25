@@ -29,6 +29,8 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 - **Deneme (simülasyon):** Girişlere (`X0`, `X1`…) dokunun, çıkışların (`Y0`, `Y1`…) yanıp söndüğünü canlı izleyin.
 - **Komut listesi:** Çizdiğiniz devrenin WPLSoft komut listesini (IL) görün, kopyalayıp gerçek WPLSoft'a yapıştırın.
   WPLSoft'tan kopyaladığınız komutları da bu programa aktarabilirsiniz.
+- **Açıklamalar (etiketler):** Kontak ve bobinlere "Start", "Motor" gibi açıklamalar yazın. Açıklamalı komut listesini indirebilir,
+  açıklama listesini kopyalayıp WPLSoft'taki aygıt açıklamalarına girebilirsiniz.
 - **Kablo bağlantı rehberi:** Hangi kablonun PLC'nin hangi ucuna takılacağını adım adım gösterir.
 - **Hazır örnekler:** Mühürleme (start-stop), yıldız-üçgen, ileri-geri, trafik lambası gibi devreleri tek dokunuşla açın.
 

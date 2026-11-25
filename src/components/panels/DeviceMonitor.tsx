@@ -166,7 +166,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
 
   return (
     <section
-      aria-label="Device Monitor Sanal PLC İzleme Paneli"
+      aria-label="Giriş / çıkış izleme paneli"
       data-testid="device-monitor"
       data-dock-mode={dockMode}
       className={
@@ -188,7 +188,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
               aria-hidden="true"
             />
             <span className="text-xs font-bold text-[#0F172A] whitespace-nowrap hidden sm:inline">
-              Device Monitor
+              Giriş / Çıkış İzleme
             </span>
             <span className="text-xs font-bold text-[#0F172A] whitespace-nowrap sm:hidden">
               I/O
@@ -204,7 +204,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
           {/* Tabs */}
           <div
             role="tablist"
-            aria-label="Device Monitor Kategorileri"
+            aria-label="İzleme kategorileri"
             className="flex items-center bg-[#DCE1EA] p-0.5 rounded border border-[#C5CDD9]"
           >
             <button
@@ -301,7 +301,7 @@ export const DeviceMonitor: React.FC<DeviceMonitorProps> = ({
             data-testid="device-monitor-collapse-btn"
             onClick={onToggleOpen}
             aria-expanded={isOpen}
-            aria-label={isOpen ? 'Device Monitor panelini kapat' : 'Device Monitor panelini aç'}
+            aria-label={isOpen ? 'İzleme panelini kapat' : 'İzleme panelini aç'}
             title={isOpen ? 'Paneli daralt' : 'Paneli aç'}
             className="h-7 w-7 rounded border border-[#C5CDD9] bg-white hover:bg-[#EDF2F8] text-[#334155] flex items-center justify-center shrink-0 cursor-pointer"
           >

@@ -152,7 +152,7 @@ export const FunctionToolbar: React.FC<FunctionToolbarProps> = ({
               aria-pressed={isActive}
               aria-label={`${item.shortcut} ${item.label} (${item.mnemonic})`}
               title={`${item.shortcut} — ${item.label}: ${item.description}`}
-              className={`group relative flex flex-col items-center justify-center min-w-[66px] sm:min-w-[72px] min-h-[42px] px-1.5 py-0.5 rounded-[4px] border text-center transition-colors shrink-0 cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] ${
+              className={`group relative flex flex-col items-center justify-center flex-1 basis-0 min-w-[60px] max-w-[88px] min-h-[42px] px-1 py-0.5 rounded-[4px] border text-center transition-colors cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0B4EA2] ${
                 isActive
                   ? 'bg-white border-[#0B4EA2] shadow-[inset_0_0_0_1px_rgba(11,78,162,0.18)]'
                   : 'bg-[#F8FAFC] border-[#CBD2DC] hover:bg-white hover:border-[#8FA3BF]'

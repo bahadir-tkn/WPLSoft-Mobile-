@@ -248,8 +248,9 @@ export default function App() {
   const [onlineControlTarget, setOnlineControlTarget] =
     useState<OnlineTargetDescriptor | null>(null);
   const [showIlPanel, setShowIlPanel] = useState(() => viewport.isDesktopWide);
+  // Telefon ve tablette (masaüstü genişliği yoksa) diyagramın tamamı sığsın diye %75 ile başla.
   const [zoomDensity, setZoomDensity] = useState<ZoomDensity>(() =>
-    viewport.isCompactTouch ? 'compact' : 'normal'
+    viewport.isCompactTouch || !viewport.isDesktopWide ? 'compact' : 'normal'
   );
   const [showQuickCmd, setShowQuickCmd] = useState<boolean>(() => viewport.isDesktopWide);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -630,6 +631,7 @@ export default function App() {
           >
             <IlCodeDrawer
               compileResult={editor.compileResult}
+              deviceComments={editor.program.deviceComments}
               activeRungIndex={editor.cursor.rungIndex}
               isOnline={simulator.isOnline}
               onSelectRung={(rungIdx) => {

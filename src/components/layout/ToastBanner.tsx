@@ -13,7 +13,7 @@ export const ToastBanner: React.FC<ToastBannerProps> = ({ message, onDismiss }) 
     <div
       role="status"
       aria-live="polite"
-      className="fixed bottom-8 left-2.5 sm:bottom-9 sm:left-4 z-40 max-w-[calc(100vw-20px)] sm:max-w-sm bg-[#0F172A]/95 text-white text-[11px] rounded-md shadow-lg border border-[#334155] px-2.5 py-1.5 flex items-center gap-2"
+      className="fixed top-[52px] left-1/2 -translate-x-1/2 z-40 w-max max-w-[calc(100vw-20px)] sm:max-w-md bg-[#0F172A]/95 text-white text-[11px] rounded-md shadow-lg border border-[#334155] px-2.5 py-1.5 flex items-center gap-2"
     >
       <Info className="w-4 h-4 text-[#60A5FA] shrink-0" aria-hidden="true" />
       <span className="leading-snug">{message}</span>
