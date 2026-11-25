@@ -91,7 +91,7 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
     if (ok) {
       setCopied(true);
       onNotify(
-        'Saf Delta IL kodu panoya kopyalandı (satır numarasız, PC WPLSoft Ctrl+V uyumlu).'
+        'Saf Delta IL kodu panoya kopyalandı (satır numarasız). WPLSoft\'ta komut (Instruction) ekranına yapıştırın.'
       );
       window.setTimeout(() => setCopied(false), 1800);
     } else {
@@ -210,7 +210,7 @@ export const IlCodeDrawer: React.FC<IlCodeDrawerProps> = ({
 
       {/* Paste compatibility note */}
       <div className="shrink-0 bg-[#F4F6F9] border-t border-[#E2E8F0] px-3 py-1.5 text-[11px] text-[#64748B]">
-        Kopyalanan çıktı satır numarasızdır (WPLSoft <span className="font-mono">Ctrl+V</span> uyumlu).
+        Kopyalanan çıktı satır numarasızdır; WPLSoft&apos;un komut (Instruction) ekranı içindir. Aktarma adımları: Dosya / IL → Dışa Aktar.
       </div>
 
       {/* Compile Diagnostics Section */}

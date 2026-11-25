@@ -238,7 +238,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
       setCopiedIl(true);
       onNotify(
         exportMode === 'pure'
-          ? 'IL kodu panoya kopyalandı. WPLSoft komut ekranına Ctrl+V ile yapıştırabilirsiniz.'
+          ? 'IL kodu panoya kopyalandı. WPLSoft\'ta komut (Instruction) ekranına yapıştırın; aktarma adımları bu pencerede.'
           : 'Açıklamalı IL kodu panoya kopyalandı.'
       );
       window.setTimeout(() => setCopiedIl(false), 1800);
@@ -631,7 +631,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
               >
                 {(
                   [
-                    { id: 'pure', title: 'WPLSoft için (saf)', sub: 'Komut ekranına Ctrl+V' },
+                    { id: 'pure', title: 'WPLSoft için (saf)', sub: 'Masaüstü WPLSoft komut ekranı' },
                     { id: 'commented', title: 'Açıklamalı', sub: 'Etiket ve ağ başlıkları ile' },
                   ] as const
                 ).map((opt) => (
@@ -656,7 +656,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
 
               <p className="text-[#475569] leading-relaxed">
                 {exportMode === 'pure'
-                  ? "Adım numarası ve açıklama içermez; masaüstü WPLSoft'un komut (Instruction) ekranına doğrudan yapıştırılır."
+                  ? "Adım numarası ve açıklama içermez; masaüstü WPLSoft'un komut (Instruction) ekranına aktarmak içindir. Nasıl aktarılacağı aşağıda anlatılıyor."
                   : "Ağ başlıkları ve aygıt açıklamaları // ile eklenir. Bu dosyayı bu uygulamaya geri yüklediğinizde açıklamalar korunur."}
               </p>
 
@@ -720,6 +720,41 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                   <span>.txt Olarak İndir</span>
                 </button>
               </div>
+
+              <details
+                className="rounded border border-[#CFE0F5] bg-[#F3F8FE] px-3 py-2 text-[#1E293B]"
+                data-testid="wplsoft-transfer-guide"
+              >
+                <summary className="cursor-pointer font-semibold text-[#0B4EA2]">
+                  Bilgisayardaki WPLSoft&apos;a nasıl aktarılır?
+                </summary>
+                <ol className="mt-2 list-decimal pl-5 space-y-1.5 leading-relaxed">
+                  <li>
+                    <b>Kodu bilgisayara getirin.</b> En kolayı: bilgisayarda bu siteyi açıp
+                    <b> Panoya Kopyala</b>&apos;ya basın. Telefondaysanız <b>.txt Olarak İndir</b> ile
+                    dosyayı kaydedip kendinize gönderin (e-posta, WhatsApp, Drive); bilgisayarda Not
+                    Defteri ile açıp <span className="font-mono">Ctrl+A</span>,{' '}
+                    <span className="font-mono">Ctrl+C</span> ile kopyalayın.
+                  </li>
+                  <li>
+                    WPLSoft&apos;ta yeni dosya açın ve PLC modelini doğru seçin ({program.model}).
+                  </li>
+                  <li>Komut (Instruction) moduna geçin (Görünüm menüsü veya araç çubuğu).</li>
+                  <li>
+                    İlk satıra tıklayıp <span className="font-mono">Ctrl+V</span> ile yapıştırın.
+                    WPLSoft sürümünüz yapıştırmayı kabul etmezse komutları listedeki sırayla yazın ve
+                    her satırdan sonra <span className="font-mono">Enter</span>&apos;a basın.
+                  </li>
+                  <li>Derleyip Ladder diyagramını kontrol edin, ardından PLC&apos;ye yazın.</li>
+                </ol>
+                <p className="mt-2 text-[11px] text-[#64748B] leading-relaxed">
+                  Not: <span className="font-mono">.il</span> / <span className="font-mono">.txt</span>{' '}
+                  dosyası WPLSoft&apos;ta &quot;Aç&quot; ile açılan bir proje dosyası değildir (WPLSoft kendi{' '}
+                  <span className="font-mono">.dvp</span> biçimini kullanır); yalnızca kodu taşımak içindir.
+                  Açıklamalı biçimdeki <span className="font-mono">//</span> satırları WPLSoft için değil,
+                  bu uygulamaya geri yüklemek içindir.
+                </p>
+              </details>
 
               <div className="border border-[#DDE3EC] rounded" data-testid="device-comment-list">
                 <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-[#DDE3EC] bg-[#F8FAFC]">
