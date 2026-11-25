@@ -20,7 +20,7 @@ export interface AddressValidationResult {
   ioZone?: 'onboard' | 'expansion' | 'internal' | 'special' | 'constant';
 }
 
-const VALID_PREFIXES = new Set<string>(['X', 'Y', 'M', 'T', 'C', 'D', 'K', 'F']);
+const VALID_PREFIXES = new Set<string>(['X', 'Y', 'M', 'S', 'T', 'C', 'D', 'K', 'F']);
 
 /**
  * Converts a decimal index (0..15) into Delta octal notation string ('0'..'7', '10'..'17').
@@ -79,7 +79,7 @@ export function offsetDeviceAddress(address: string, offset: number): string | n
     return `${prefix}${next.toString(8)}`;
   }
 
-  if (prefix === 'M' || prefix === 'T' || prefix === 'C' || prefix === 'D') {
+  if (prefix === 'M' || prefix === 'S' || prefix === 'T' || prefix === 'C' || prefix === 'D') {
     const base = Number.parseInt(rest, 10);
     const next = base + offset;
     if (Number.isNaN(next) || next < 0) return null;
@@ -90,7 +90,7 @@ export function offsetDeviceAddress(address: string, offset: number): string | n
 }
 
 /**
- * Validates a ZRST S1 S2 zone reset pair (same writable prefix Y/M/T/C/D and S1 <= S2).
+ * Validates a ZRST S1 S2 zone reset pair (same writable prefix Y/M/S/T/C/D and S1 <= S2).
  */
 export function validateZrstRange(
   startInput: string,
@@ -146,7 +146,7 @@ export function validateAddress(
   if (!VALID_PREFIXES.has(prefix)) {
     return {
       valid: false,
-      error: `Geçersiz aygıt ön eki "${prefix}". Desteklenen ön ekler: X, Y, M, T, C, D, K, F.`,
+      error: `Geçersiz aygıt ön eki "${prefix}". Desteklenen ön ekler: X, Y, M, S, T, C, D, K, F.`,
     };
   }
 
@@ -372,6 +372,42 @@ export function validateAddress(
         numericValue: decValue,
         isOctal: false,
         isSpecialRelay: Boolean(special),
+      },
+    };
+  }
+
+  if (typedPrefix === 'S') {
+    if (decValue < spec.stepRange.min || decValue > spec.stepRange.max) {
+      return {
+        valid: false,
+        error: `Adım rölesi S${spec.stepRange.min} – S${spec.stepRange.max} aralığında olmalıdır.`,
+      };
+    }
+    const normalized = `S${decValue}`;
+    if (
+      role === 'timer' ||
+      role === 'counter' ||
+      role === 'preset' ||
+      role === 'word_source' ||
+      role === 'word_dest' ||
+      role === 'float_source'
+    ) {
+      return {
+        valid: false,
+        error: `${normalized} adım rölesidir (bit); bu parametre alanı için uygun değildir.`,
+      };
+    }
+    return {
+      valid: true,
+      ioZone: 'internal',
+      parsed: {
+        raw: input,
+        normalized,
+        prefix: 'S',
+        numericText: String(decValue),
+        numericValue: decValue,
+        isOctal: false,
+        isSpecialRelay: false,
       },
     };
   }

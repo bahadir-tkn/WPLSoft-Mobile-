@@ -115,6 +115,45 @@ export function parseQuickCommand(
   const opcode = tokens[0];
   const args = tokens.slice(1);
 
+  // 0. NP / PN (sonuç kenarı) ve adım komutları STL Sn / RET
+  if (opcode === 'NP' || opcode === 'PN') {
+    if (args.length !== 0) {
+      return { valid: false, error: `${opcode} komutu adres almaz (yalnızca ${opcode}).` };
+    }
+    return {
+      valid: true,
+      element: { kind: 'EDGE', edge: opcode },
+      targetScope: 'logic',
+      isParallelOr: false,
+      summary: opcode,
+    };
+  }
+  if (opcode === 'RET') {
+    return {
+      valid: true,
+      element: { kind: 'RET' },
+      targetScope: 'logic',
+      isParallelOr: false,
+      summary: 'RET',
+    };
+  }
+  if (opcode === 'STL') {
+    if (args.length !== 1) {
+      return { valid: false, error: 'STL komutu bir adım rölesi gerektirir (Örn: STL S10).' };
+    }
+    const addr = validateArg(args[0], 'bit_contact', model);
+    if (!addr.ok || !/^S\d+$/.test(addr.value)) {
+      return { valid: false, error: 'STL adresi bir adım rölesi olmalıdır (Örn: STL S10).' };
+    }
+    return {
+      valid: true,
+      element: { kind: 'STL', address: addr.value },
+      targetScope: 'logic',
+      isParallelOr: false,
+      summary: `STL ${addr.value}`,
+    };
+  }
+
   // 1. Contacts: LD / LDI / LDP / LDF / AND / ANI / ANDP / ANDF / OR / ORI / ORP / ORF
   const contactInfo = parseContactCommand(opcode);
   if (contactInfo) {

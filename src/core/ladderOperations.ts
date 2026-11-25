@@ -8,6 +8,7 @@ import type {
 } from '../types/plc';
 import { offsetDeviceAddress } from './addressing';
 import { createEmptyCell, createEmptyRow, createEmptyRung } from './gridFactory';
+import { getStepHeader } from './ast';
 import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS } from './plcModels';
 import { parseQuickCommand, type QuickCommandSuccess } from './quickCommand';
 
@@ -122,7 +123,7 @@ export function isOutputElement(element: CellElement): boolean {
 }
 
 export function isLogicElement(element: CellElement): boolean {
-  return element.kind === 'CONTACT' || element.kind === 'COMPARE';
+  return element.kind === 'CONTACT' || element.kind === 'COMPARE' || element.kind === 'EDGE';
 }
 
 export function extractPrimaryAddress(element: CellElement): string | null {
@@ -151,6 +152,8 @@ export function extractPrimaryAddress(element: CellElement): string | null {
       return element.start.toUpperCase();
     case 'COMPARE':
       return element.operandA.toUpperCase();
+    case 'STL':
+      return element.address.toUpperCase();
     default:
       return null;
   }
@@ -432,6 +435,37 @@ export function applyQuickCommandOnProgram(
   const baseRung = program.rungs[targetRungIdx];
   if (!baseRung || baseRung.isEnd) {
     return { ok: false, error: 'Düzenlenebilir Ladder ağı bulunamadı.' };
+  }
+
+  // STL Sn / RET: kendi başlık ağına yazılır; ardından adım gövdesi için boş bir ağa geçilir.
+  if (parsed.element.kind === 'STL' || parsed.element.kind === 'RET') {
+    const rungs = program.rungs.map((r) => cloneRung(r));
+    const isBlank = (r: LadderRung) =>
+      !r.isEnd && r.rows.every((row) => row.every((c) => c.element.kind === 'EMPTY' && !c.branchDown));
+    let headerIdx = targetRungIdx;
+    if (!isBlank(rungs[headerIdx])) {
+      headerIdx += 1;
+      rungs.splice(headerIdx, 0, createEmptyRung(LADDER_TOTAL_COLUMNS));
+    }
+    const headerRow = createEmptyRow(LADDER_TOTAL_COLUMNS);
+    headerRow[0] = { branchDown: false, element: parsed.element };
+    rungs[headerIdx] = { ...rungs[headerIdx], rows: [headerRow] };
+    if (!rungs[headerIdx + 1] || !isBlank(rungs[headerIdx + 1])) {
+      rungs.splice(headerIdx + 1, 0, createEmptyRung(LADDER_TOTAL_COLUMNS));
+    }
+    return {
+      ok: true,
+      program: { ...program, rungs },
+      nextCursor: { rungIndex: headerIdx + 1, rowIndex: 0, colIndex: 0 },
+      parsed,
+    };
+  }
+
+  if (getStepHeader(baseRung)) {
+    return {
+      ok: false,
+      error: 'Bu ağ bir adım başlığıdır (STL/RET). Komutları alttaki ağa yazın.',
+    };
   }
 
   // Strict validation BEFORE mutating rungs when placing a parallel OR command
@@ -733,6 +767,12 @@ export function describeCellElement(el: CellElement): string {
       return `TZCP ${el.start1} ${el.start2} ${el.current} ${el.destination}`;
     case 'HLINE':
       return 'HLINE';
+    case 'EDGE':
+      return el.edge;
+    case 'STL':
+      return `STL ${el.address}`;
+    case 'RET':
+      return 'RET';
     case 'END':
       return 'END';
     default:
@@ -756,6 +796,9 @@ function collectCellReferences(
   switch (el.kind) {
     case 'CONTACT':
       addIfDevice(el.address, 'read', el.contactType);
+      break;
+    case 'STL':
+      addIfDevice(el.address, 'read', 'STL');
       break;
     case 'COMPARE':
       addIfDevice(el.operandA, 'read', `CMP(${el.operator})`);
@@ -846,11 +889,12 @@ const PREFIX_ORDER: Record<DevicePrefix, number> = {
   X: 0,
   Y: 1,
   M: 2,
-  T: 3,
-  C: 4,
-  D: 5,
-  K: 6,
-  F: 7,
+  S: 3,
+  T: 4,
+  C: 5,
+  D: 6,
+  K: 7,
+  F: 8,
 };
 
 function addressSortNumber(address: string): number {

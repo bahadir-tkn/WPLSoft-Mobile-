@@ -28,7 +28,7 @@ export const MAX_ROWS_PER_RUNG = 32;
 export const MAX_DEVICE_COMMENTS = 2000;
 export const MAX_SAVED_ITEMS = 50;
 const FORBIDDEN_RECORD_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
-const VALID_COMMENT_KEY_RE = /^[XYMTCD]\d{1,5}$/;
+const VALID_COMMENT_KEY_RE = /^[XYMSTCD]\d{1,5}$/;
 
 const VALID_MODELS = new Set<PlcModelId>(['DVP-SX2', 'DVP-14SS2', 'DVP-12SA2']);
 const VALID_CONTACTS = new Set<ContactKind>(['NO', 'NC', 'RISING', 'FALLING']);
@@ -56,7 +56,14 @@ const OUTPUT_ELEMENT_KINDS = new Set<CellElement['kind']>([
   'TWR',
   'TZCP',
 ]);
-const LOGIC_ELEMENT_KINDS = new Set<CellElement['kind']>(['CONTACT', 'COMPARE', 'HLINE']);
+const LOGIC_ELEMENT_KINDS = new Set<CellElement['kind']>([
+  'CONTACT',
+  'COMPARE',
+  'HLINE',
+  'EDGE',
+  'STL',
+  'RET',
+]);
 
 export interface StorageWriteResult {
   ok: boolean;
@@ -116,6 +123,27 @@ function validateCellElement(
       return { valid: true, element: { kind: 'HLINE' } };
     case 'END':
       return { valid: true, element: { kind: 'END' } };
+    case 'RET':
+      return { valid: true, element: { kind: 'RET' } };
+    case 'EDGE': {
+      if (el.edge !== 'NP' && el.edge !== 'PN') {
+        return { valid: false, error: `${locationTag}: Geçersiz kenar komutu ("${String(el.edge)}").` };
+      }
+      return { valid: true, element: { kind: 'EDGE', edge: el.edge } };
+    }
+    case 'STL': {
+      if (!isNonEmptyString(el.address)) {
+        return { valid: false, error: `${locationTag}: STL adım adresi eksik.` };
+      }
+      const check = validateAddress(el.address, 'bit_contact', model);
+      if (!check.valid || !check.parsed || check.parsed.prefix !== 'S') {
+        return { valid: false, error: `${locationTag}: STL adresi bir adım rölesi (S0, S10…) olmalıdır.` };
+      }
+      return {
+        valid: true,
+        element: { kind: 'STL', address: check.parsed.normalized, comment: optionalComment(el.comment) },
+      };
+    }
 
     case 'CONTACT': {
       if (typeof el.contactType !== 'string' || !VALID_CONTACTS.has(el.contactType as ContactKind)) {

@@ -22,6 +22,8 @@ interface CellEditModalProps {
   deviceComments: Record<string, string>;
   /** comment === undefined → kullanıcı açıklamaya dokunmadı, mevcut etiketler değiştirilmez. */
   onSave: (element: CellElement, comment: string | undefined) => void;
+  /** STL / RET yalnızca boş bir ağın ilk hücresine yerleştirilebilir. */
+  canPlaceStepHeader?: boolean;
   onDelete: () => void;
   onCancel: () => void;
 }
@@ -33,6 +35,15 @@ const CONTACT_TYPES: { id: ContactKind; label: string; glyph: string }[] = [
   { id: 'NC', label: 'NC (LDI/ANI)', glyph: '-|/|-' },
   { id: 'RISING', label: 'Yükselen (LDP)', glyph: '-|↑|-' },
   { id: 'FALLING', label: 'Düşen (LDF)', glyph: '-|↓|-' },
+];
+
+type ContactExtraMode = 'NP' | 'PN' | 'STL' | 'RET';
+
+const CONTACT_EXTRA_TYPES: { id: ContactExtraMode; label: string; glyph: string }[] = [
+  { id: 'NP', label: 'Sonuç ↑ (NP)', glyph: '─↑─' },
+  { id: 'PN', label: 'Sonuç ↓ (PN)', glyph: '─↓─' },
+  { id: 'STL', label: 'Adım (STL)', glyph: '─<S>─' },
+  { id: 'RET', label: 'Adım sonu (RET)', glyph: 'RET' },
 ];
 
 const COIL_TYPES: { id: CoilKind; label: string }[] = [
@@ -127,7 +138,11 @@ type QuickPickGroup = {
   items: { value: string; sub?: string; highlight?: boolean }[];
 };
 
-function buildQuickPickGroups(role: AddressRole, model: PlcModelId): QuickPickGroup[] {
+function buildQuickPickGroups(
+  role: AddressRole,
+  model: PlcModelId,
+  stepOnly = false
+): QuickPickGroup[] {
   const spec = PLC_MODELS[model];
   const isSx2 = model === 'DVP-SX2';
 
@@ -174,6 +189,14 @@ function buildQuickPickGroups(role: AddressRole, model: PlcModelId): QuickPickGr
     items: ['M0', 'M1', 'M2', 'M3', 'M4', 'M5', 'M6', 'M7', 'M10', 'M11', 'M12', 'M20'].map(
       (v) => ({ value: v })
     ),
+  };
+
+  const sGroup: QuickPickGroup = {
+    id: 'S',
+    label: 'Adım (S)',
+    items: ['S0', 'S10', 'S11', 'S12', 'S13', 'S14', 'S15', 'S20', 'S21', 'S22'].map((v) => ({
+      value: v,
+    })),
   };
 
   const tGroup: QuickPickGroup = {
@@ -252,11 +275,11 @@ function buildQuickPickGroups(role: AddressRole, model: PlcModelId): QuickPickGr
 
   switch (role) {
     case 'bit_contact':
-      return [xGroup, yGroup, mContactGroup, tGroup, cGroup];
+      return stepOnly ? [sGroup] : [xGroup, yGroup, mContactGroup, sGroup, tGroup, cGroup];
     case 'bit_coil':
-      return [yGroup, mCoilGroup];
+      return [yGroup, mCoilGroup, sGroup];
     case 'rst_target':
-      return [yGroup, mCoilGroup, tGroup, cGroup, dDestGroup];
+      return [yGroup, mCoilGroup, sGroup, tGroup, cGroup, dDestGroup];
     case 'timer':
       return [tGroup];
     case 'counter':
@@ -279,6 +302,7 @@ interface QuickPickPanelProps {
   model: PlcModelId;
   selectedValue: string;
   onPick: (value: string) => void;
+  stepOnly?: boolean;
 }
 
 const QuickPickPanel: React.FC<QuickPickPanelProps> = ({
@@ -286,8 +310,12 @@ const QuickPickPanel: React.FC<QuickPickPanelProps> = ({
   model,
   selectedValue,
   onPick,
+  stepOnly = false,
 }) => {
-  const groups = useMemo(() => buildQuickPickGroups(role, model), [role, model]);
+  const groups = useMemo(
+    () => buildQuickPickGroups(role, model, stepOnly),
+    [role, model, stepOnly]
+  );
   const [activeGroupId, setActiveGroupId] = useState(groups[0]?.id ?? 'X');
 
   const activeGroup = groups.find((g) => g.id === activeGroupId) ?? groups[0];
@@ -372,6 +400,9 @@ function getInitialFields(
 
   if (element.kind === 'CONTACT') {
     contactType = element.contactType;
+    primaryInput = element.address;
+    commentKey = element.address;
+  } else if (element.kind === 'STL') {
     primaryInput = element.address;
     commentKey = element.address;
   } else if (element.kind === 'COIL') {
@@ -478,6 +509,11 @@ function getInitialFields(
     quaternaryInput,
     initialComment,
     commentKey,
+    extraMode: (element.kind === 'EDGE'
+      ? element.edge
+      : element.kind === 'STL' || element.kind === 'RET'
+        ? element.kind
+        : null) as ContactExtraMode | null,
   };
 }
 
@@ -501,6 +537,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   onSave: onSaveProp,
   onDelete,
   onCancel,
+  canPlaceStepHeader = false,
 }) => {
   const initial = useMemo(
     () => getInitialFields(element, deviceComments, isNewPlacement),
@@ -509,6 +546,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   );
 
   const [contactType, setContactType] = useState<ContactKind>(initial.contactType);
+  const [extraMode, setExtraMode] = useState<ContactExtraMode | null>(initial.extraMode);
   const [coilType, setCoilType] = useState<CoilKind>(initial.coilType);
   const [appCmdKind, setAppCmdKind] = useState<AppCmdKind>(initial.appCmdKind);
   const [compareOp, setCompareOp] = useState<CompareOperator>(initial.compareOp);
@@ -553,7 +591,14 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     element.kind === 'TWR' ||
     element.kind === 'TZCP';
   const isCompare = element.kind === 'COMPARE';
-  const isContact = element.kind === 'CONTACT';
+  const isContact =
+    element.kind === 'CONTACT' ||
+    element.kind === 'EDGE' ||
+    element.kind === 'STL' ||
+    element.kind === 'RET';
+  // NP / PN / RET adres almaz.
+  const noAddress = isContact && (extraMode === 'NP' || extraMode === 'PN' || extraMode === 'RET');
+  const isStepHeaderMode = isContact && (extraMode === 'STL' || extraMode === 'RET');
   const isCoil = element.kind === 'COIL';
 
   // Adres değiştiğinde açıklama otomatik olarak getirilmez/yazılmaz.
@@ -620,7 +665,19 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
 
   if (isContact) {
     primaryRole = 'bit_contact';
-    primaryLabel = 'Kontak Adresi (X, Y, M, T, C)';
+    primaryLabel =
+      extraMode === 'STL' ? 'Adım Rölesi (S0 – S1023)' : 'Kontak Adresi (X, Y, M, S, T, C)';
+    if (extraMode === 'NP' || extraMode === 'PN') {
+      helperHint =
+        extraMode === 'NP'
+          ? 'NP: solundaki kontakların sonucu 0→1 olduğunda yalnızca bir tarama boyunca iletir (diyagramda ↑).'
+          : 'PN: solundaki kontakların sonucu 1→0 olduğunda yalnızca bir tarama boyunca iletir (diyagramda ↓).';
+    } else if (extraMode === 'STL') {
+      helperHint =
+        'STL: adım başlığıdır. Altındaki ağlar bu adım etkinken çalışır; SET S.. ile sonraki adıma geçilir. Adımların sonuna RET koyun.';
+    } else if (extraMode === 'RET') {
+      helperHint = 'RET: STL adım bloklarını kapatır; sonraki ağlar normal çalışır.';
+    }
   } else if (isCoil) {
     primaryRole = coilType === 'RST' ? 'rst_target' : 'bit_coil';
     primaryLabel =
@@ -737,7 +794,16 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     }
   }
 
-  const primaryValidation = validateAddress(primaryInput, primaryRole, model);
+  const rawPrimaryValidation = validateAddress(primaryInput, primaryRole, model);
+  const primaryValidation: typeof rawPrimaryValidation = noAddress
+    ? { valid: true, parsed: { raw: '', normalized: '', prefix: 'M', numericText: '', numericValue: 0, isOctal: false, isSpecialRelay: false } }
+    : extraMode === 'STL' && isContact && rawPrimaryValidation.valid && rawPrimaryValidation.parsed?.prefix !== 'S'
+      ? { valid: false, error: 'STL adresi bir adım rölesi olmalıdır (örn. S0, S10).' }
+      : rawPrimaryValidation;
+  const stepPlacementError =
+    isStepHeaderMode && !canPlaceStepHeader
+      ? 'STL ve RET yalnızca boş bir ağın ilk hücresine yerleştirilebilir. Önce F11 ile yeni bir ağ ekleyin.'
+      : null;
   const secondaryValidation = secondaryRole
     ? validateAddress(secondaryInput, secondaryRole, model)
     : { valid: true };
@@ -761,6 +827,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       : null;
 
   const isFormValid =
+    !stepPlacementError &&
     !rtcSupportError &&
     primaryValidation.valid &&
     secondaryValidation.valid &&
@@ -768,7 +835,9 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
     quaternaryValidation.valid &&
     zrstValidation.valid;
 
-  const firstError = rtcSupportError
+  const firstError = stepPlacementError
+    ? stepPlacementError
+    : rtcSupportError
     ? rtcSupportError
     : !primaryValidation.valid
       ? primaryValidation.error
@@ -883,7 +952,13 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
       onSaveProp({ ...next, comment: keptComment } as CellElement, undefined);
     };
 
-    if (isContact) {
+    if (isContact && (extraMode === 'NP' || extraMode === 'PN')) {
+      onSaveProp({ kind: 'EDGE', edge: extraMode }, undefined);
+    } else if (isContact && extraMode === 'RET') {
+      onSaveProp({ kind: 'RET' }, undefined);
+    } else if (isContact && extraMode === 'STL') {
+      onSave({ kind: 'STL', address: pNorm, comment: cleanComment }, comment);
+    } else if (isContact) {
       onSave(
         { kind: 'CONTACT', contactType, address: pNorm, comment: cleanComment },
         comment
@@ -1042,7 +1117,11 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
   };
 
   const modalTitle = isContact
-    ? 'Kontak Düzenle'
+    ? extraMode === 'STL' || extraMode === 'RET'
+      ? 'Adım (STL / RET) Düzenle'
+      : extraMode
+        ? 'Sonuç Kenarı (NP / PN) Düzenle'
+        : 'Kontak Düzenle'
     : isCoil
       ? 'Çıkış / Mühür Bobini Düzenle'
       : isCompare
@@ -1095,15 +1174,42 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
                 <button
                   key={ct.id}
                   type="button"
-                  onClick={() => setContactType(ct.id)}
+                  onClick={() => {
+                    setContactType(ct.id);
+                    if (extraMode === 'STL' && /^S\d+$/.test(primaryInput.trim().toUpperCase())) {
+                      setPrimaryInput('X0');
+                    }
+                    setExtraMode(null);
+                  }}
                   className={`min-h-[42px] px-2 py-1 rounded border text-center transition-colors cursor-pointer ${
-                    contactType === ct.id
+                    !extraMode && contactType === ct.id
                       ? 'bg-[#EEF4FC] border-[#0B4EA2] text-[#0B4EA2] font-bold'
                       : 'bg-white border-[#CBD2DC] text-[#334155] hover:bg-[#F8FAFC]'
                   }`}
                 >
                   <div className="font-mono text-xs">{ct.glyph}</div>
                   <div className="text-[10px]">{ct.label}</div>
+                </button>
+              ))}
+              {CONTACT_EXTRA_TYPES.map((xt) => (
+                <button
+                  key={xt.id}
+                  type="button"
+                  data-testid={`contact-extra-${xt.id}`}
+                  onClick={() => {
+                    setExtraMode(xt.id);
+                    if (xt.id === 'STL' && !/^S\d+$/.test(primaryInput.trim().toUpperCase())) {
+                      setPrimaryInput('S0');
+                    }
+                  }}
+                  className={`min-h-[42px] px-2 py-1 rounded border text-center transition-colors cursor-pointer ${
+                    extraMode === xt.id
+                      ? 'bg-[#F5F3FF] border-[#7C3AED] text-[#6D28D9] font-bold'
+                      : 'bg-white border-[#DDD6FE] text-[#4C1D95] hover:bg-[#FAF5FF]'
+                  }`}
+                >
+                  <div className="font-mono text-xs">{xt.glyph}</div>
+                  <div className="text-[10px]">{xt.label}</div>
                 </button>
               ))}
             </div>
@@ -1199,6 +1305,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
           )}
 
           {/* Address Input Fields */}
+          {!noAddress && (
           <div className={gridColsClass}>
             <div>
               <label
@@ -1318,6 +1425,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
               </div>
             )}
           </div>
+          )}
 
           {helperHint && (
             <p className="text-[11px] text-[#475569] bg-[#F1F5F9] border border-[#DDE3EC] rounded px-2.5 py-1.5">
@@ -1341,14 +1449,19 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
           )}
 
           {/* Quick-Pick Chips */}
-          <QuickPickPanel
-            role={activeQuickRole}
-            model={model}
-            selectedValue={activeQuickValue}
-            onPick={handleQuickPick}
-          />
+          {!noAddress && (
+            <QuickPickPanel
+              key={extraMode === 'STL' ? 'steps' : 'all'}
+              role={activeQuickRole}
+              model={model}
+              selectedValue={activeQuickValue}
+              onPick={handleQuickPick}
+              stepOnly={isContact && extraMode === 'STL'}
+            />
+          )}
 
           {/* Optional Device Comment */}
+          {!noAddress && (
           <div>
             <label
               htmlFor="cell-comment-input"
@@ -1369,6 +1482,7 @@ export const CellEditModal: React.FC<CellEditModalProps> = ({
               className="w-full h-9 px-3 rounded border border-[#B8C2D1] bg-white text-xs text-[#0F172A] focus:outline-none focus:ring-2 focus:ring-[#0B4EA2]/25 focus:border-[#0B4EA2]"
             />
           </div>
+          )}
         </div>
 
         {/* Footer Actions */}

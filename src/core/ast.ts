@@ -24,6 +24,13 @@ export type LogicAstNode =
       colIndex: number;
     }
   | {
+      /** NP / PN: önündeki seri bağlantının sonucunun kenarı */
+      kind: 'EDGE';
+      edge: 'NP' | 'PN';
+      rowIndex: number;
+      colIndex: number;
+    }
+  | {
       kind: 'AND';
       children: LogicAstNode[];
     }
@@ -138,7 +145,22 @@ export function isOutputElement(el: CellElement): el is OutputAstElement {
 }
 
 export function isLogicElement(el: CellElement): boolean {
-  return el.kind === 'CONTACT' || el.kind === 'COMPARE' || el.kind === 'HLINE';
+  return el.kind === 'CONTACT' || el.kind === 'COMPARE' || el.kind === 'HLINE' || el.kind === 'EDGE';
+}
+
+/**
+ * STL / RET başlık ağı mı? Bu ağlar yalnızca ilk hücrede STL Sn veya RET içerir
+ * ve WPLSoft'taki adım (step ladder) bloklarını açar/kapatır.
+ */
+export function getStepHeader(
+  rung: LadderRung
+): { kind: 'STL'; address: string } | { kind: 'RET' } | null {
+  if (rung.isEnd) return null;
+  const first = rung.rows[0]?.[0]?.element;
+  if (!first) return null;
+  if (first.kind === 'STL') return { kind: 'STL', address: first.address.trim().toUpperCase() };
+  if (first.kind === 'RET') return { kind: 'RET' };
+  return null;
 }
 
 function combineAnd(a: LogicAstNode, b: LogicAstNode): LogicAstNode {
@@ -406,6 +428,19 @@ export function buildRungAst(rung: LadderRung, rungIndex: number): RungAst {
             kind: 'CONTACT',
             contactType: cell.element.contactType,
             address: cell.element.address,
+            rowIndex: r,
+            colIndex: c,
+          },
+        });
+      } else if (cell.element.kind === 'EDGE') {
+        rawEdges.push({
+          id: edgeId++,
+          from: fromNet,
+          to: toNet,
+          orderKey,
+          ast: {
+            kind: 'EDGE',
+            edge: cell.element.edge,
             rowIndex: r,
             colIndex: c,
           },

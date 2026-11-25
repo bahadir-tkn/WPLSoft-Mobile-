@@ -12,6 +12,7 @@ type CommandCategoryId =
   | 'compare'
   | 'data'
   | 'math'
+  | 'steps'
   | 'wires';
 
 interface MobileCommandItem {
@@ -33,6 +34,7 @@ const CATEGORIES: { id: CommandCategoryId; label: string }[] = [
   { id: 'compare', label: 'Karşılaştırmalar' },
   { id: 'data', label: 'Veri İşlemleri' },
   { id: 'math', label: 'Matematik' },
+  { id: 'steps', label: 'Adım (SFC)' },
   { id: 'wires', label: 'Bağlantılar' },
 ];
 
@@ -69,6 +71,56 @@ const COMMAND_ITEMS: MobileCommandItem[] = [
     label: 'Düşen Kenar',
     hint: '-|↓|- X0',
     element: { kind: 'CONTACT', contactType: 'FALLING', address: 'X0' },
+  },
+  {
+    id: 'm-np',
+    category: 'contacts',
+    opcode: 'NP',
+    label: 'Sonuç Yükselen (↑)',
+    hint: 'Solundaki koşul 0→1',
+    element: { kind: 'EDGE', edge: 'NP' },
+  },
+  {
+    id: 'm-pn',
+    category: 'contacts',
+    opcode: 'PN',
+    label: 'Sonuç Düşen (↓)',
+    hint: 'Solundaki koşul 1→0',
+    element: { kind: 'EDGE', edge: 'PN' },
+  },
+
+  // Adım (SFC / STL)
+  {
+    id: 'm-stl',
+    category: 'steps',
+    opcode: 'STL',
+    label: 'Adım Başlığı',
+    hint: '─<S>─ S10 (boş ağa)',
+    element: { kind: 'STL', address: 'S10' },
+  },
+  {
+    id: 'm-ret',
+    category: 'steps',
+    opcode: 'RET',
+    label: 'Adımları Bitir',
+    hint: 'RET (boş ağa)',
+    element: { kind: 'RET' },
+  },
+  {
+    id: 'm-set-s',
+    category: 'steps',
+    opcode: 'SET S',
+    label: 'Sonraki Adıma Geç',
+    hint: 'SET S11',
+    element: { kind: 'COIL', coilType: 'SET', address: 'S11' },
+  },
+  {
+    id: 'm-ld-s',
+    category: 'steps',
+    opcode: 'LD S',
+    label: 'Adım Kontağı',
+    hint: '-| |- S10',
+    element: { kind: 'CONTACT', contactType: 'NO', address: 'S10' },
   },
 
   // Bobinler

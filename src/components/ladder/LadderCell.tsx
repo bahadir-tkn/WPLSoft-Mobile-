@@ -106,6 +106,12 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
         return `${element.pulsed ? 'TWRP' : 'TWR'} ${element.source}`;
       case 'TZCP':
         return `TZCP ${element.start1} ${element.start2} ${element.current} ${element.destination}`;
+      case 'EDGE':
+        return element.edge === 'NP' ? 'NP (sonuç yükselen kenar)' : 'PN (sonuç düşen kenar)';
+      case 'STL':
+        return `STL ${element.address} (adım)`;
+      case 'RET':
+        return 'RET (adım sonu)';
       case 'END':
         return 'END';
     }
@@ -506,6 +512,65 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
         });
       }
 
+      case 'EDGE': {
+        // WPLSoft: NP / PN kontak hattı üzerinde dikey ok olarak çizilir (↑ / ↓).
+        const isRise = element.edge === 'NP';
+        const arrowColor = activeRight ? '#00C853' : symbolColor;
+        return (
+          <div className="relative w-full h-full">
+            <span className={topLabelClass} style={{ color: arrowColor }}>
+              {element.edge}
+            </span>
+            {renderWireRailRow(
+              <svg viewBox="0 0 20 30" className="w-[16px] h-[26px] shrink-0 block overflow-visible" aria-hidden="true">
+                <path
+                  d={isRise ? 'M10 27V4M4 10l6-6 6 6' : 'M10 3v23M4 20l6 6 6-6'}
+                  fill="none"
+                  stroke={arrowColor}
+                  strokeWidth="2.4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>,
+              { minWirePx: 6 }
+            )}
+          </div>
+        );
+      }
+
+      case 'STL': {
+        // WPLSoft adım kontağı: ─<S>─ ve üstünde adım adresi
+        const stlActive = isOnline && (energized || contactConducting);
+        const stlColor = stlActive ? '#00C853' : '#7C3AED';
+        return (
+          <div className="relative w-full h-full">
+            <span className={topLabelClass} style={{ color: stlColor }}>
+              {element.address}
+            </span>
+            {renderWireRailRow(
+              <svg viewBox="0 0 40 30" className={`${isCompact ? 'w-[34px] h-[24px]' : 'w-[40px] h-[28px]'} shrink-0 block overflow-visible`} aria-hidden="true">
+                {stlActive && (
+                  <rect x="4" y="3" width="32" height="24" rx="2" fill="rgba(0, 200, 83, 0.18)" />
+                )}
+                <path d="M12 4L4 15l8 11M28 4l8 11-8 11" fill="none" stroke={stlColor} strokeWidth="2.4" strokeLinejoin="round" />
+                <text x="20" y="20" textAnchor="middle" fill={stlColor} fontSize="13" fontWeight="800" fontFamily="JetBrains Mono, monospace">
+                  S
+                </text>
+              </svg>,
+              { minWirePx: 4, rightColor: 'transparent' }
+            )}
+          </div>
+        );
+      }
+
+      case 'RET':
+        return renderFunctionBox('ADIM SONU', 'RET', {
+          fillBg: '#F5F3FF',
+          borderColor: '#7C3AED',
+          textColor: '#7C3AED',
+          rightColor: 'transparent',
+        });
+
       case 'END':
         return renderFunctionBox('', 'END', {
           fillBg: '#EEF4FC',
@@ -526,6 +591,8 @@ const LadderCellComponent: React.FC<LadderCellProps> = ({
     !isEndRung &&
     element.kind !== 'EMPTY' &&
     element.kind !== 'HLINE' &&
+    element.kind !== 'EDGE' &&
+    element.kind !== 'RET' &&
     element.kind !== 'END';
 
   const handleClick = () => {

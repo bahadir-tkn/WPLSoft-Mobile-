@@ -8,7 +8,7 @@ import type {
   LadderProgram,
 } from '../types/plc';
 import { validateAddress, validateZrstRange } from './addressing';
-import { buildRungAst, type LogicAstNode, type OutputAstElement } from './ast';
+import { buildRungAst, getStepHeader, type LogicAstNode, type OutputAstElement } from './ast';
 import { LADDER_COIL_COLUMN, PLC_MODELS } from './plcModels';
 
 type EmitMode = 'LD' | 'AND' | 'OR';
@@ -151,6 +151,16 @@ function emitLogicAst(
         operands: [node.operandA, node.operandB],
         rungIndex,
       });
+      return;
+    }
+
+    case 'EDGE': {
+      // NP / PN önündeki seri bağlantının sonucuna uygulanır.
+      // Doğrudan güç hattından başlıyorsa sonuç her zaman 1'dir (LD M1000).
+      if (mode === 'LD') {
+        out.push({ opcode: 'LD', operands: ['M1000'], rungIndex });
+      }
+      out.push({ opcode: node.edge, operands: [], rungIndex });
       return;
     }
 
@@ -345,11 +355,24 @@ function fingerprintLogicNode(node: LogicAstNode): string {
       return `C:${node.contactType}:${node.address}@${node.rowIndex},${node.colIndex}`;
     case 'COMPARE':
       return `K:${node.operator}:${node.operandA}:${node.operandB}@${node.rowIndex},${node.colIndex}`;
+    case 'EDGE':
+      return `E:${node.edge}@${node.rowIndex},${node.colIndex}`;
     case 'AND':
       return `A(${node.children.map(fingerprintLogicNode).join('&')})`;
     case 'OR':
       return `O(${node.children.map(fingerprintLogicNode).join('|')})`;
   }
+}
+
+/** Paralel bir kolun ilk elemanı NP/PN ise WPLSoft'ta karşılığı yoktur. */
+function hasEdgeAtBranchStart(node: LogicAstNode): boolean {
+  const firstLeaf = (n: LogicAstNode): LogicAstNode =>
+    n.kind === 'AND' && n.children.length > 0 ? firstLeaf(n.children[0]) : n;
+  if (node.kind === 'OR') {
+    return node.children.some((c) => firstLeaf(c).kind === 'EDGE' || hasEdgeAtBranchStart(c));
+  }
+  if (node.kind === 'AND') return node.children.some(hasEdgeAtBranchStart);
+  return false;
 }
 
 function factorsToAst(factors: LogicAstNode[]): LogicAstNode {
@@ -365,6 +388,52 @@ function commonPrefixLength(a: LogicAstNode[], b: LogicAstNode[]): number {
     k += 1;
   }
   return k;
+}
+
+/**
+ * STL / RET yerleşim kuralları: yalnızca ağın ilk hücresinde, tek satırlık ve
+ * başka eleman içermeyen bir ağda bulunabilirler. STL adresi S aygıtı olmalıdır.
+ */
+function validateStepHeaders(program: LadderProgram, diagnostics: CompileDiagnostic[]): void {
+  program.rungs.forEach((rung, rungIndex) => {
+    if (rung.isEnd) return;
+    const rungTag = `Ağ ${String(rungIndex).padStart(3, '0')}`;
+    rung.rows.forEach((row, rowIndex) => {
+      row.forEach((cell, colIndex) => {
+        const el = cell.element;
+        if (el.kind !== 'STL' && el.kind !== 'RET') return;
+        const label = el.kind === 'STL' ? `STL ${el.address}` : 'RET';
+        const otherContent =
+          rung.rows.length > 1 ||
+          row.some((c, ci) => ci !== 0 && (c.element.kind !== 'EMPTY' || c.branchDown)) ||
+          cell.branchDown;
+        if (rowIndex !== 0 || colIndex !== 0 || otherContent) {
+          diagnostics.push({
+            severity: 'error',
+            code: 'SYNTAX_ERROR',
+            message: `${rungTag}: ${label} kendi ağının ilk hücresinde tek başına bulunmalıdır.`,
+            rungIndex,
+            rowIndex,
+            colIndex,
+          });
+        }
+        if (el.kind === 'STL') {
+          const res = validateAddress(el.address, 'bit_contact', program.model);
+          if (!res.valid || res.parsed?.prefix !== 'S') {
+            diagnostics.push({
+              severity: 'error',
+              code: 'INVALID_ADDRESS',
+              message: `${rungTag}: STL adresi bir adım rölesi (S0, S10…) olmalıdır.`,
+              rungIndex,
+              rowIndex,
+              colIndex,
+              address: el.address,
+            });
+          }
+        }
+      });
+    });
+  });
 }
 
 function validateProgramCells(
@@ -852,13 +921,23 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
 
   // 1. Validate cell addresses against active PLC model
   validateProgramCells(program, diagnostics);
+  validateStepHeaders(program, diagnostics);
+
+  // Adım (STL) bağlamı: STL Sn başlığından RET'e kadar olan ağlar Sn adımına aittir.
+  let activeStep: string | null = null;
+  // STL başlığından hemen sonra, henüz LD yazılmadan gelen çıkışlar doğrudan adım
+  // barasına bağlanır (WPLSoft: STL S10 / OUT Y20).
+  let stepBusFresh = false;
 
   // 2. Track OUT coil usage for Double Coil detection
-  const outCoilUsage = new Map<string, { rungIndex: number; rowIndex: number; colIndex: number }[]>();
+  const outCoilUsage = new Map<
+    string,
+    { rungIndex: number; rowIndex: number; colIndex: number; step: string | null }[]
+  >();
   const trackOutCoil = (element: OutputAstElement, rungIndex: number, rowIndex: number) => {
     if (element.kind === 'COIL' && element.coilType === 'OUT') {
       const addr = element.address.toUpperCase();
-      const entry = { rungIndex, rowIndex, colIndex: LADDER_COIL_COLUMN };
+      const entry = { rungIndex, rowIndex, colIndex: LADDER_COIL_COLUMN, step: activeStep };
       const list = outCoilUsage.get(addr);
       if (list) list.push(entry);
       else outCoilUsage.set(addr, [entry]);
@@ -868,10 +947,44 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
   let hasEndRung = false;
 
   program.rungs.forEach((rung, rungIndex) => {
+    const header = getStepHeader(rung);
+    if (header) {
+      if (header.kind === 'STL') {
+        rawInstructions.push({ opcode: 'STL', operands: [header.address], rungIndex });
+        activeStep = header.address;
+        stepBusFresh = true;
+      } else {
+        if (!activeStep) {
+          diagnostics.push({
+            severity: 'warning',
+            code: 'SYNTAX_ERROR',
+            message: `Ağ ${String(rungIndex).padStart(3, '0')}: RET komutundan önce STL adımı bulunmuyor.`,
+            rungIndex,
+            rowIndex: 0,
+            colIndex: 0,
+          });
+        }
+        rawInstructions.push({ opcode: 'RET', operands: [], rungIndex });
+        activeStep = null;
+        stepBusFresh = false;
+      }
+      return;
+    }
+
     const ast = buildRungAst(rung, rungIndex);
 
     if (ast.isEnd) {
       hasEndRung = true;
+      if (activeStep) {
+        diagnostics.push({
+          severity: 'warning',
+          code: 'SYNTAX_ERROR',
+          message: `${activeStep} adım bloğu RET ile kapatılmamış. Adımların sonuna RET ekleyin.`,
+          rungIndex,
+          rowIndex: 0,
+          colIndex: 0,
+        });
+      }
       rawInstructions.push({
         opcode: 'END',
         operands: [],
@@ -951,6 +1064,34 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
 
     validBranches.sort((a, b) => a.rowIndex - b.rowIndex);
 
+    for (const group of ast.outputGroups) {
+      if (group.logic && hasEdgeAtBranchStart(group.logic)) {
+        diagnostics.push({
+          severity: 'error',
+          code: 'SYNTAX_ERROR',
+          message: `Ağ ${String(rungIndex).padStart(3, '0')}: NP/PN (↑/↓) paralel bir kolun başında kullanılamaz; bir kontaktan sonra yerleştirin.`,
+          rungIndex,
+          rowIndex: group.outputs[0]?.rowIndex ?? 0,
+          colIndex: 0,
+        });
+      }
+    }
+
+    // STL başlığından hemen sonra koşulsuz (yalnızca yatay hat) çıkışlar: LD olmadan yazılır.
+    if (
+      activeStep &&
+      stepBusFresh &&
+      validBranches.length > 0 &&
+      validBranches.every((b) => b.factors.length === 1 && b.factors[0].kind === 'WIRE')
+    ) {
+      for (const b of validBranches) {
+        emitOutput(b.element, rungIndex, rawInstructions);
+        trackOutCoil(b.element, rungIndex, b.rowIndex);
+      }
+      return;
+    }
+    if (validBranches.length > 0) stepBusFresh = false;
+
     const emitBranchCluster = (
       startIdx: number,
       endIdx: number,
@@ -1019,9 +1160,15 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
         g = gEnd;
       }
 
-      const needsMpsStack = childGroups.some(
-        ([cs, ce]) => ce - cs > 1 || validBranches[cs].factors.length > sharedEnd
-      );
+      // WPLSoft gibi: koşulsuz çıkışlardan sonra yalnızca SON dal ek koşul taşıyorsa MPS gerekmez;
+      // çıkışlar yazılır, ardından son dalın kontakları AND ile devam eder
+      // (ör. TMR T0 K200 / SET Y0 / AND T0 / RST Y0). Diğer durumlarda MPS/MRD/MPP kullanılır.
+      const isDirectLeaf = ([cs, ce]: [number, number]) =>
+        ce - cs === 1 && validBranches[cs].factors.length === sharedEnd;
+      const continuationForm = childGroups.slice(0, -1).every(isDirectLeaf);
+      const needsMpsStack =
+        !continuationForm &&
+        childGroups.some(([cs, ce]) => ce - cs > 1 || validBranches[cs].factors.length > sharedEnd);
 
       for (let ci = 0; ci < childGroups.length; ci += 1) {
         const [cs, ce] = childGroups[ci];
@@ -1057,7 +1204,12 @@ export function compileLadderToIl(program: LadderProgram): CompileResult {
   });
 
   // 3. Double Coil check
-  for (const [address, entries] of outCoilUsage.entries()) {
+  for (const [address, allEntries] of outCoilUsage.entries()) {
+    // Farklı STL adımlarındaki aynı çıkış geçerlidir (yalnızca etkin adım yazar).
+    const stepKeys = new Set(allEntries.map((e) => e.step ?? '__main__'));
+    const conflicts =
+      stepKeys.size === allEntries.length && !stepKeys.has('__main__') ? [] : allEntries;
+    const entries = conflicts;
     if (entries.length > 1) {
       const formattedRungs = entries
         .map((e) => `Ağ ${String(e.rungIndex).padStart(3, '0')}`)

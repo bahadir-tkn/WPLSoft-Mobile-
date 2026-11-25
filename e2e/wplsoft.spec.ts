@@ -210,6 +210,60 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     errors.assertZeroErrors();
   });
 
+  test('Textbook features: NP edge via contact dialog, STL/RET via dialog and quick command, step simulation', async ({
+    page,
+  }) => {
+    const errors = attachErrorCollectors(page);
+    const ilList = page.getByTestId('il-code-list');
+
+    // X0 → NP → INC D0
+    await page.getByTestId('cell-0-0-0').click();
+    await page.keyboard.press('F1');
+    await page.locator('#cell-primary-input').fill('X0');
+    await page.keyboard.press('Enter');
+    await page.getByTestId('cell-0-0-1').click();
+    await page.keyboard.press('F1');
+    await page.getByTestId('contact-extra-NP').click();
+    await expect(page.locator('#cell-primary-input')).toBeHidden();
+    await page.locator('[role=dialog] button[type=submit]').click();
+    await page.getByTestId('cell-0-0-8').click();
+    await page.keyboard.press('F6');
+    await page.getByTestId('app-cmd-INC').click();
+    await page.locator('[role=dialog] button[type=submit]').click();
+    await expect(ilList).toContainText(/LD\s*X0[\s\S]*NP[\s\S]*INC\s*D0/);
+
+    // STL is refused on a non-empty rung
+    await page.getByTestId('cell-0-0-0').click();
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Enter');
+    await page.getByTestId('contact-extra-STL').click();
+    await expect(page.locator('[role=dialog] button[type=submit]')).toBeDisabled();
+    await page.keyboard.press('Escape');
+
+    // STL S10 on an empty rung, body + RET by quick command
+    await page.getByTestId('cell-1-0-0').click();
+    await page.keyboard.press('F1');
+    await page.getByTestId('contact-extra-STL').click();
+    await page.locator('#cell-primary-input').fill('S10');
+    await page.locator('[role=dialog] button[type=submit]').click();
+    await page.getByTestId('cell-2-0-0').click();
+    for (const cmd of ['LD X1', 'OUT Y1', 'RET']) {
+      await submitQuickCommand(page, cmd);
+    }
+    await expect(ilList).toContainText(/STL\s*S10[\s\S]*LD\s*X1[\s\S]*OUT\s*Y1[\s\S]*RET/);
+
+    // Simulation: Y1 follows X1 only while step S10 is active
+    await page.getByTestId('toggle-online-btn').click();
+    await page.getByTestId('input-btn-X1').click();
+    await expect(page.getByTestId('output-led-Y1')).toHaveAttribute('aria-label', /OFF/);
+    await page.getByRole('tab', { name: 'M·T·C' }).click();
+    await page.getByTestId('relay-S10').click();
+    // Adım etkin: adım gövdesindeki Y1 bobini enerjilenir.
+    await expect(page.getByTestId('cell-2-0-8')).toHaveAttribute('data-energized', 'true');
+
+    errors.assertZeroErrors();
+  });
+
   test('StrictMode Undo/Redo reliability: single, sequential, redo, and future-clear on new edit', async ({
     page,
   }) => {
