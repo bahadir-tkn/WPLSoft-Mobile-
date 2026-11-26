@@ -26,3 +26,19 @@ export const WPLSOFT_SAMPLES: { name: string; il: string[]; words: string; check
     checksum: 0xd1bc,
   },
 ];
+
+/**
+ * Deney 6 (Su–Köpük): kullanıcı uygulamadaki şablonun komut listesini WPLSoft 2.52'ye satır satır
+ * girip kaydetti. WPLSoft'un ürettiği program kelimeleri ve sağlama toplamı.
+ */
+export const WPLSOFT_DENEY6 = {
+  words:
+    '2400 5e00 d800 0005 8300 8032 8000 2800 4401 5802 d801 2800 4402 5801 d802 2801 fffa 0003 8101 8096 8000 ' +
+    'fffb 5601 d501 fffc 4601 0007 8401 8005 0007 8401 8008 0007 8400 8008 2802 fffa 0003 8102 80fa 8000 ' +
+    'fffb 5602 d502 fffc 4602 0007 8402 8005 0007 8402 8008 0007 8400 8008 000f',
+  checksum: 0x485b,
+  comments: [
+    'X0$&1 TL', 'X1$&Köpük Buton', 'X2$&Su Buton', 'Y1$&Köpük Pompa', 'Y2$&Su Pompa',
+    'M0$&1 TL Kilit', 'M1$&Köpük Kilit', 'M2$&Su Kilit', 'T1$&Köpük Süresi', 'T2$&Su Süresi', 'C0$&50 Adet Sayıcı',
+  ],
+};

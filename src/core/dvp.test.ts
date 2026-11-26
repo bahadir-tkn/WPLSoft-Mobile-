@@ -5,7 +5,8 @@ import { compileLadderToIl } from './ilCompiler';
 import { parseIlToLadder } from './ilParser';
 import { INDUSTRIAL_TEMPLATES } from './templates';
 import { BOOK } from './fixtures/bookExamples';
-import { WPLSOFT_SAMPLES } from './fixtures/wplsoftSamples';
+import { WPLSOFT_DENEY6, WPLSOFT_SAMPLES } from './fixtures/wplsoftSamples';
+import { getTemplateById } from './templates';
 
 const hex = (words: number[]) => words.map((w) => w.toString(16).padStart(4, '0')).join(' ');
 
@@ -74,4 +75,19 @@ test('.dvp: refuses models and instructions whose encoding is not verified', () 
   assert.equal(res.ok, false);
   assert.match(res.errors[0], /TRD/);
   assert.throws(() => encodeInstruction('LD', ['M2048']));
+});
+
+test('.dvp: Deney 6 template produces the same program and comments as the file WPLSoft saved for it', () => {
+  const program = getTemplateById('deney6-su-kopuk').buildProgram('DVP-SX2');
+  const compiled = compileLadderToIl(program);
+  const { words, errors } = encodeProgramWords(compiled);
+  assert.deepEqual(errors, []);
+  assert.equal(hex(words), WPLSOFT_DENEY6.words);
+  assert.equal(compiled.stepCount, 56);
+  const res = buildDvpFile(program, compiled);
+  const b = res.bytes!;
+  assert.equal(b[0x56] | (b[0x57] << 8), WPLSOFT_DENEY6.checksum);
+  const text = Buffer.from(b).toString('latin1');
+  const expected = Buffer.from(encodeCp1254(WPLSOFT_DENEY6.comments.join('\n') + '\n')).toString('latin1');
+  assert.ok(text.includes(`<DataBegin>\n${expected}<DataEnd>`), 'same comments in the same order as WPLSoft');
 });
