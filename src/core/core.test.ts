@@ -2964,3 +2964,19 @@ test('Compiler warns when a drawn contact is not connected to any output (it wou
     JSON.stringify(compiled.diagnostics)
   );
 });
+
+test('IL import draws output-only branches from the contact like WPLSoft / the lab sheet (Deney 5)', () => {
+  const program = getTemplateById('deney5-dalgic-pompa').buildProgram('DVP-SX2');
+  const rung = program.rungs[2];
+  const kinds = rung.rows.map((row) => row.map((c) => c.element.kind));
+  // T0'dan sonraki satırlar (TMR T1, RST Y1, SET Y2) T0'nun hemen sağındaki dikey çizgiden beslenir.
+  const t0Row = rung.rows.findIndex((row) => row[1].element.kind === 'CONTACT' && (row[1].element as { address: string }).address === 'T0' && (row[1].element as { contactType: string }).contactType === 'NO');
+  assert.ok(t0Row > 0);
+  assert.equal(rung.rows[t0Row][1].branchDown, true);
+  for (const r of [t0Row + 1, t0Row + 2]) {
+    assert.deepEqual(kinds[r].slice(2, 8), Array(6).fill('HLINE'), `row ${r}`);
+    assert.equal(rung.rows[r - 1][7].branchDown, false, `no right-side drop above row ${r}`);
+  }
+  // Komut listesi föydekiyle aynı kalır.
+  assert.match(compileLadderToIl(program).rawIlText, /AND T0\nTMR T1 K100\nRST Y1\nSET Y2\nAND T1\nRST Y2\nRST T0/);
+});

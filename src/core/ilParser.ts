@@ -14,6 +14,7 @@ import type {
 import { validateAddress, validateZrstRange } from './addressing';
 import { createBlankProgram, createEmptyCell, createEmptyRow, createEndRung } from './gridFactory';
 import { LADDER_COIL_COLUMN, LADDER_TOTAL_COLUMNS, PLC_MODELS } from './plcModels';
+import { alignOutputBranchesLeft } from './ladderLayout';
 
 export const MAX_IL_INPUT_BYTES = 512 * 1024; // 512 KB hard cap
 export const MAX_IL_LINES = 5000;
@@ -1624,7 +1625,8 @@ export function parseIlToLadder(
     };
   }
 
-  const finalRungs: LadderRung[] = [...rungs, createEndRung()];
+  // Çıkış dallarını WPLSoft / föy çizimindeki gibi kontağın hemen sağından bağla (yalnızca görünüm).
+  const finalRungs: LadderRung[] = [...rungs.map((r) => alignOutputBranchesLeft(r, model)), createEndRung()];
   const now = new Date().toISOString();
 
   return {
