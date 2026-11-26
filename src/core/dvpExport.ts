@@ -1,5 +1,9 @@
 /**
- * WPLSoft proje dosyası (.dvp) üretimi — DENEYSEL.
+ * WPLSoft proje dosyası (.dvp) üretimi.
+ *
+ * Üretilen dosyalar WPLSoft 2.52'de açılıp yeniden kaydedilerek doğrulandı (Deney 5, Deney 6,
+ * trafik lambası ve tüm komut türlerini içeren deneme programı): program, sağlama toplamı ve
+ * aygıt açıklamaları WPLSoft'un kaydettiğiyle birebir aynı.
  *
  * Biçim, WPLSoft 2.52 ile DVP-SX2 için kaydedilmiş örnek dosyaların karşılaştırılmasıyla
  * çözülmüştür (resmî belge yoktur):

@@ -640,6 +640,51 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
           )}
           {activeTab === 'export_il' && (
             <div className="space-y-3">
+              <div className="rounded border border-[#B7E4C7] bg-[#F1FBF4] px-3 py-2.5 space-y-2" data-testid="dvp-export">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-[#14532D]">
+                      WPLSoft proje dosyası (.dvp)
+                      {dvpSupported && (
+                        <span className="ml-1.5 rounded bg-[#DCFCE7] px-1.5 py-0.5 text-[10px] font-bold text-[#166534] align-middle">
+                          ÖNERİLEN
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-[#3F6212] leading-relaxed">
+                      WPLSoft&apos;ta <b>Dosya → Aç</b> ile doğrudan açılır; diyagram ve aygıt açıklamaları gelir.
+                      Komutları tek tek girmeniz gerekmez.
+                      {!dvpSupported && ' Şimdilik yalnızca DVP-SX2 için.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadDvp}
+                    disabled={!dvpSupported}
+                    data-testid="download-dvp-btn"
+                    className="h-9 px-3.5 rounded bg-[#15803D] hover:bg-[#166534] disabled:bg-[#CBD5E1] disabled:cursor-not-allowed text-white font-semibold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>.dvp Olarak İndir</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#64748B] leading-relaxed">
+                  WPLSoft&apos;ta açtıktan sonra diyagramın buradakiyle aynı olduğunu kontrol edin, ardından
+                  PLC&apos;ye yazın. Ağ başlıkları (segment açıklamaları) .dvp dosyasına aktarılmaz.
+                </p>
+                {dvpErrors.length > 0 && (
+                  <div className="rounded border border-[#FCA5A5] bg-[#FEF2F2] px-2.5 py-2 text-[11px] text-[#991B1B]" data-testid="dvp-errors">
+                    <div className="font-semibold mb-1">.dvp dosyası oluşturulamadı:</div>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {dvpErrors.slice(0, 8).map((e) => (
+                        <li key={e}>{e}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-1">Bu programı komut listesiyle (aşağıdaki adımlar) aktarabilirsiniz.</div>
+                  </div>
+                )}
+              </div>
+
               <div
                 role="radiogroup"
                 aria-label="Dışa aktarım biçimi"
@@ -735,48 +780,6 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                   <Download className="w-3.5 h-3.5" aria-hidden="true" />
                   <span>.txt Olarak İndir</span>
                 </button>
-              </div>
-
-              <div className="rounded border border-[#B7E4C7] bg-[#F1FBF4] px-3 py-2.5 space-y-2" data-testid="dvp-export">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="font-semibold text-[#14532D]">
-                      WPLSoft proje dosyası (.dvp){' '}
-                      <span className="ml-1 rounded bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-bold text-[#92400E] align-middle">
-                        DENEYSEL
-                      </span>
-                    </div>
-                    <div className="text-[11px] text-[#3F6212] leading-relaxed">
-                      WPLSoft&apos;ta <b>Dosya → Aç</b> ile doğrudan açılır; diyagram ve aygıt açıklamaları gelir.
-                      {!dvpSupported && ' Şimdilik yalnızca DVP-SX2 için.'}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={handleDownloadDvp}
-                    disabled={!dvpSupported}
-                    data-testid="download-dvp-btn"
-                    className="h-9 px-3.5 rounded bg-[#15803D] hover:bg-[#166534] disabled:bg-[#CBD5E1] disabled:cursor-not-allowed text-white font-semibold flex items-center gap-1.5 cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
-                    <span>.dvp Olarak İndir</span>
-                  </button>
-                </div>
-                <p className="text-[11px] text-[#64748B] leading-relaxed">
-                  WPLSoft&apos;ta açtıktan sonra diyagramın buradakiyle aynı olduğunu kontrol edin, ardından
-                  PLC&apos;ye yazın. Ağ başlıkları (segment açıklamaları) .dvp dosyasına aktarılmaz.
-                </p>
-                {dvpErrors.length > 0 && (
-                  <div className="rounded border border-[#FCA5A5] bg-[#FEF2F2] px-2.5 py-2 text-[11px] text-[#991B1B]" data-testid="dvp-errors">
-                    <div className="font-semibold mb-1">.dvp dosyası oluşturulamadı:</div>
-                    <ul className="list-disc pl-4 space-y-0.5">
-                      {dvpErrors.slice(0, 8).map((e) => (
-                        <li key={e}>{e}</li>
-                      ))}
-                    </ul>
-                    <div className="mt-1">Bu programı komut listesiyle (aşağıdaki adımlar) aktarabilirsiniz.</div>
-                  </div>
-                )}
               </div>
 
               <details
