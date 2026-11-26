@@ -30,6 +30,8 @@ Merdiven (Ladder) diyagramı çizer, devreyi PLC'ye yüklemeden önce ekranda ç
 - **Komut listesi:** Çizdiğiniz devrenin WPLSoft komut listesini (IL) görün ve bilgisayardaki WPLSoft'un komut (Instruction) ekranına aktarın
   (adımlar uygulamada **Dosya / IL → Dışa Aktar** penceresinde anlatılır).
   WPLSoft'tan kopyaladığınız komutları da bu programa aktarabilirsiniz.
+- **WPLSoft proje dosyası (.dvp, deneysel):** DVP-SX2 programlarını doğrudan WPLSoft'ta açılan `.dvp` dosyası olarak indirin
+  (aygıt açıklamaları dahil). WPLSoft'ta açtıktan sonra diyagramı kontrol edip PLC'ye yazın.
 - **Açıklamalar (etiketler):** Kontak ve bobinlere "Start", "Motor" gibi açıklamalar yazın. Açıklamalı komut listesini indirebilir,
   açıklama listesini kopyalayıp WPLSoft'taki aygıt açıklamalarına girebilirsiniz.
 - **Kablo bağlantı rehberi:** Hangi kablonun PLC'nin hangi ucuna takılacağını adım adım gösterir.
