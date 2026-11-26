@@ -64,6 +64,10 @@ function instructionStepCost(opcode: IlOpcode): number {
   if (opcode === 'TMR' || opcode === 'CNT') {
     return 4;
   }
+  // WPLSoft 2.52 (DVP-SX2) RST komutunu her hedefte (Y/M/S/T/C/D) 3 adım olarak kaydeder.
+  if (opcode === 'RST') {
+    return 3;
+  }
   if (
     opcode === 'LDP' ||
     opcode === 'LDF' ||

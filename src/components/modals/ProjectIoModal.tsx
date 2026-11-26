@@ -25,6 +25,7 @@ import {
   buildDeviceCommentListText,
   listDeviceComments,
 } from '../../core/commentExport';
+import { buildDvpFile, DVP_SUPPORTED_MODELS } from '../../core/dvpExport';
 import {
   clearDraftStorage,
   deleteProjectFromLibrary,
@@ -61,11 +62,11 @@ function isAppleMobile(): boolean {
   );
 }
 
-function triggerFileDownload(filename: string, content: string, mimeType: string): void {
+function triggerFileDownload(filename: string, content: string | Uint8Array, mimeType: string): void {
   // iOS'ta (özellikle ana ekrana eklenmiş uygulamada) blob indirme bağlantısı uygulamayı
   // terk ettirebilir. Paylaşım sayfası ise "Dosyalar'a Kaydet" seçeneğini güvenle sunar.
   if (isAppleMobile() && typeof File !== 'undefined' && typeof navigator.canShare === 'function') {
-    const file = new File([content], filename, { type: mimeType.split(';')[0] });
+    const file = new File([content as BlobPart], filename, { type: mimeType.split(';')[0] });
     if (navigator.canShare({ files: [file] })) {
       navigator.share({ files: [file], title: filename }).catch((err: unknown) => {
         if ((err as { name?: string })?.name !== 'AbortError') downloadViaAnchor(filename, content, mimeType);
@@ -76,8 +77,8 @@ function triggerFileDownload(filename: string, content: string, mimeType: string
   downloadViaAnchor(filename, content, mimeType);
 }
 
-function downloadViaAnchor(filename: string, content: string, mimeType: string): void {
-  const blob = new Blob([content], { type: mimeType });
+function downloadViaAnchor(filename: string, content: string | Uint8Array, mimeType: string): void {
+  const blob = new Blob([content as BlobPart], { type: mimeType });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -114,6 +115,7 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
   // 'pure': WPLSoft komut ekranına yapıştırmak için saf IL; 'commented': açıklamalı IL
   const [exportMode, setExportMode] = useState<'pure' | 'commented'>('pure');
   const [confirmingReset, setConfirmingReset] = useState(false);
+  const [dvpErrors, setDvpErrors] = useState<string[]>([]);
 
   // IL Import states
   const [ilDraft, setIlDraft] = useState('');
@@ -245,6 +247,20 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
     } else {
       onNotify('Panoya erişilemedi; metni seçerek manuel kopyalayabilirsiniz.');
     }
+  };
+
+  const dvpSupported = DVP_SUPPORTED_MODELS.includes(program.model);
+
+  const handleDownloadDvp = () => {
+    const res = buildDvpFile(program, compileResult);
+    if (!res.ok || !res.bytes) {
+      setDvpErrors(res.errors);
+      onNotify('.dvp dosyası oluşturulamadı; ayrıntılar pencerede.');
+      return;
+    }
+    setDvpErrors([]);
+    triggerFileDownload(`${fileSlug}.dvp`, res.bytes, 'application/octet-stream');
+    onNotify(`${fileSlug}.dvp dosyası indirildi. WPLSoft'ta Dosya → Aç ile açın.`);
   };
 
   const handleDownloadIl = (ext: 'il' | 'txt') => {
@@ -721,6 +737,48 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                 </button>
               </div>
 
+              <div className="rounded border border-[#B7E4C7] bg-[#F1FBF4] px-3 py-2.5 space-y-2" data-testid="dvp-export">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-[#14532D]">
+                      WPLSoft proje dosyası (.dvp){' '}
+                      <span className="ml-1 rounded bg-[#FEF3C7] px-1.5 py-0.5 text-[10px] font-bold text-[#92400E] align-middle">
+                        DENEYSEL
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-[#3F6212] leading-relaxed">
+                      WPLSoft&apos;ta <b>Dosya → Aç</b> ile doğrudan açılır; diyagram ve aygıt açıklamaları gelir.
+                      {!dvpSupported && ' Şimdilik yalnızca DVP-SX2 için.'}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleDownloadDvp}
+                    disabled={!dvpSupported}
+                    data-testid="download-dvp-btn"
+                    className="h-9 px-3.5 rounded bg-[#15803D] hover:bg-[#166534] disabled:bg-[#CBD5E1] disabled:cursor-not-allowed text-white font-semibold flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Download className="w-3.5 h-3.5" aria-hidden="true" />
+                    <span>.dvp Olarak İndir</span>
+                  </button>
+                </div>
+                <p className="text-[11px] text-[#64748B] leading-relaxed">
+                  WPLSoft&apos;ta açtıktan sonra diyagramın buradakiyle aynı olduğunu kontrol edin, ardından
+                  PLC&apos;ye yazın. Ağ başlıkları (segment açıklamaları) .dvp dosyasına aktarılmaz.
+                </p>
+                {dvpErrors.length > 0 && (
+                  <div className="rounded border border-[#FCA5A5] bg-[#FEF2F2] px-2.5 py-2 text-[11px] text-[#991B1B]" data-testid="dvp-errors">
+                    <div className="font-semibold mb-1">.dvp dosyası oluşturulamadı:</div>
+                    <ul className="list-disc pl-4 space-y-0.5">
+                      {dvpErrors.slice(0, 8).map((e) => (
+                        <li key={e}>{e}</li>
+                      ))}
+                    </ul>
+                    <div className="mt-1">Bu programı komut listesiyle (aşağıdaki adımlar) aktarabilirsiniz.</div>
+                  </div>
+                )}
+              </div>
+
               <details
                 className="rounded border border-[#CFE0F5] bg-[#F3F8FE] px-3 py-2 text-[#1E293B]"
                 data-testid="wplsoft-transfer-guide"
@@ -728,22 +786,26 @@ export const ProjectIoModal: React.FC<ProjectIoModalProps> = ({
                 <summary className="cursor-pointer font-semibold text-[#0B4EA2]">
                   Bilgisayardaki WPLSoft&apos;a nasıl aktarılır?
                 </summary>
-                <ol className="mt-2 list-decimal pl-5 space-y-1.5 leading-relaxed">
+                <p className="mt-2 leading-relaxed">
+                  <b>En kolayı (DVP-SX2):</b> yukarıdaki <b>.dvp Olarak İndir</b> ile dosyayı alın, bilgisayara
+                  getirin ve WPLSoft&apos;ta <b>Dosya → Aç</b> ile açın.
+                </p>
+                <p className="mt-2 font-semibold">Komut listesiyle (her model):</p>
+                <ol className="mt-1 list-decimal pl-5 space-y-1.5 leading-relaxed">
                   <li>
-                    <b>Kodu bilgisayara getirin.</b> En kolayı: bilgisayarda bu siteyi açıp
-                    <b> Panoya Kopyala</b>&apos;ya basın. Telefondaysanız <b>.txt Olarak İndir</b> ile
-                    dosyayı kaydedip kendinize gönderin (e-posta, WhatsApp, Drive); bilgisayarda Not
-                    Defteri ile açıp <span className="font-mono">Ctrl+A</span>,{' '}
-                    <span className="font-mono">Ctrl+C</span> ile kopyalayın.
+                    <b>Kodu bilgisayara getirin.</b> Bilgisayarda bu siteyi açın ya da telefonda{' '}
+                    <b>.txt Olarak İndir</b> ile kaydedip kendinize gönderin (e-posta, WhatsApp, Drive) ve
+                    Not Defteri ile açın.
                   </li>
                   <li>
                     WPLSoft&apos;ta yeni dosya açın ve PLC modelini doğru seçin ({program.model}).
                   </li>
                   <li>Komut (Instruction) moduna geçin (Görünüm menüsü veya araç çubuğu).</li>
                   <li>
-                    İlk satıra tıklayıp <span className="font-mono">Ctrl+V</span> ile yapıştırın.
-                    WPLSoft sürümünüz yapıştırmayı kabul etmezse komutları listedeki sırayla yazın ve
-                    her satırdan sonra <span className="font-mono">Enter</span>&apos;a basın.
+                    Komutları <b>tek tek</b> girin: her satırı kopyalayıp WPLSoft&apos;ta yeni satıra{' '}
+                    <span className="font-mono">Ctrl+V</span> ile yapıştırın ya da yazın, ardından{' '}
+                    <span className="font-mono">Enter</span>. (WPLSoft 2.52 birden çok satırı tek seferde
+                    yapıştırmayı kabul etmiyor.)
                   </li>
                   <li>Derleyip Ladder diyagramını kontrol edin, ardından PLC&apos;ye yazın.</li>
                 </ol>

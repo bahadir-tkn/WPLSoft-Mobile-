@@ -429,6 +429,26 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     errors.assertZeroErrors();
   });
 
+  test('WPLSoft .dvp export downloads a project file for DVP-SX2', async ({ page }) => {
+    const errors = attachErrorCollectors(page);
+    await page.getByTestId('open-templates-btn').click();
+    await page.getByTestId('tpl-filter-experiment').click();
+    await page.getByTestId('load-template-deney4-camasir-makinesi').click();
+    await page.getByTestId('open-project-io-btn').click();
+    const downloadPromise = page.waitForEvent('download');
+    await page.getByTestId('download-dvp-btn').click();
+    const download = await downloadPromise;
+    expect(download.suggestedFilename()).toMatch(/\.dvp$/);
+    const path = await download.path();
+    const fs = await import('node:fs');
+    const bytes = fs.readFileSync(path!);
+    expect(bytes.length).toBeGreaterThan(100_000);
+    expect(bytes[0]).toBe(0x57);
+    expect(bytes.toString('latin1')).toContain('M0$&');
+    await expect(page.getByTestId('dvp-errors')).toHaveCount(0);
+    errors.assertZeroErrors();
+  });
+
   test('StrictMode Undo/Redo reliability: single, sequential, redo, and future-clear on new edit', async ({
     page,
   }) => {
