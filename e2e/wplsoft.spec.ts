@@ -360,28 +360,30 @@ test.describe('Desktop (1440x900) — WPLSoft Mobile Full Verification', () => {
     expect(il).toContain('LD M0 AND M13 SET Y0 TMR T0 K20 AND T0 RST Y0 RST M13 SET M14');
     await expect(page.getByText('Derleme temiz')).toBeVisible();
 
-    // Simülasyon (10x): X0'a bas-bırak, sonra Y0/Y1 geçişlerini kaydet
+    // Simülasyon (10x): kayıt X0'a basılmadan ÖNCE başlar, böylece ilk sağa dönüş kaçmaz.
     await page.getByTestId('toggle-online-btn').click();
     await page.getByTestId('sim-speed-10').click();
-    await page.getByTestId('input-btn-X0').click();
-    await page.getByTestId('input-btn-X0').click();
-    const seq = await page.evaluate(async () => {
+    await page.evaluate(() => {
+      const w = window as unknown as { __seq: string[] };
+      w.__seq = [];
       const read = () =>
         ['Y0', 'Y1', 'Y4']
           .filter((y) =>
             /ON/.test(document.querySelector(`[data-testid="output-led-${y}"]`)?.getAttribute('aria-label') ?? '')
           )
           .join('+') || '-';
-      const out: string[] = [];
-      const start = performance.now();
-      while (performance.now() - start < 8000) {
+      const timer = window.setInterval(() => {
         const v = read();
-        if (out[out.length - 1] !== v) out.push(v);
-        if (v === 'Y4') break;
-        await new Promise((r) => setTimeout(r, 5));
-      }
-      return out;
+        if (w.__seq[w.__seq.length - 1] !== v) w.__seq.push(v);
+        if (v === 'Y4') window.clearInterval(timer);
+      }, 4);
     });
+    await page.getByTestId('input-btn-X0').click();
+    await page.getByTestId('input-btn-X0').click();
+    await page.waitForFunction(() => (window as unknown as { __seq: string[] }).__seq.includes('Y4'), null, {
+      timeout: 15_000,
+    });
+    const seq = await page.evaluate(() => (window as unknown as { __seq: string[] }).__seq);
     const rights = seq.filter((v) => v === 'Y0').length;
     const lefts = seq.filter((v) => v === 'Y1').length;
     expect(rights, seq.join(' ')).toBe(4);
